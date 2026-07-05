@@ -26,6 +26,12 @@
     <p id="teacherNameLabel" class="text-slate-500 text-sm mt-1"></p>
   </header>
 
+  <!-- รายละเอียดหัวข้อ/ภาควิชา/คณะ ของกิจกรรมที่กำลังประเมิน -->
+  <div id="topicBanner" class="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-5 hidden">
+    <p id="topicBannerDeptFaculty" class="text-sm font-medium text-blue-800"></p>
+    <p id="topicBannerTopic" class="text-sm text-blue-700 mt-1"></p>
+  </div>
+
   <!-- เลือกวันที่มีกิจกรรมการเรียนการสอน -->
   <div class="bg-white rounded-xl card-shadow p-4 mb-5">
     <label class="block text-sm font-medium text-slate-600 mb-2">วันที่มีกิจกรรมการเรียนการสอน</label>
@@ -39,8 +45,12 @@
 <!-- ================= MODAL: แบบฟอร์มประเมิน ================= -->
 <div id="evalModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center p-4 z-50">
   <div class="bg-white rounded-xl max-w-xl w-full max-h-[90vh] overflow-y-auto">
-    <div class="sticky top-0 bg-white border-b border-slate-200 p-4 flex items-center justify-between">
-      <h2 id="modalStudentName" class="font-bold text-lg text-slate-800"></h2>
+    <div class="sticky top-0 bg-white border-b border-slate-200 p-4 flex items-center gap-3">
+      <img id="modalStudentImage" src="" class="w-12 h-12 rounded-full object-cover border border-slate-200">
+      <div class="flex-1">
+        <h2 id="modalStudentName" class="font-bold text-lg text-slate-800"></h2>
+        <p id="modalStudentMeta" class="text-xs text-slate-400"></p>
+      </div>
       <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>
     </div>
 
@@ -61,6 +71,19 @@
   </div>
 </div>
 
+<!-- ================= MODAL: ยืนยันหลังบันทึกสำเร็จ (แสดงรูป+คะแนนให้อาจารย์เห็นทันที) ================= -->
+<div id="successModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center p-4 z-50">
+  <div class="bg-white rounded-xl max-w-sm w-full p-6 text-center">
+    <img id="successImage" src="" class="w-24 h-24 rounded-full object-cover mx-auto mb-3 border-2 border-green-200">
+    <p class="text-green-600 font-semibold text-sm mb-1">บันทึกผลการประเมินสำเร็จ ✅</p>
+    <h3 id="successName" class="font-bold text-lg text-slate-800"></h3>
+    <p id="successScore" class="text-2xl font-bold text-blue-600 my-2"></p>
+    <button onclick="closeSuccessModal()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg transition mt-2">
+      ประเมินคนถัดไป
+    </button>
+  </div>
+</div>
+
 <script>
 let teacherUid = '';
 let teacherName = '';
@@ -68,6 +91,7 @@ let students = [];
 let evaluatedStudentIds = [];
 let schema = [];
 let currentStudent = null;
+let appConfig = {};
 
 // ---------- LIFF INIT: ดึง LINE UID ของอาจารย์ผู้ประเมิน ----------
 async function initLiff() {
@@ -90,9 +114,22 @@ async function initLiff() {
 
   const today = new Date().toISOString().split('T')[0];
   document.getElementById('teachingDate').value = today;
+  await loadConfig();
   await loadSchema();
   await loadStudents();
   await onDateChange();
+}
+
+// ---------- แสดงรายละเอียดหัวข้อ/ภาควิชา/คณะ ให้อาจารย์เห็นก่อนเริ่มประเมิน ----------
+async function loadConfig() {
+  appConfig = await apiGet('getConfig');
+  const deptFaculty = [appConfig.Department, appConfig.Faculty].filter(Boolean).join(' | ');
+  const banner = document.getElementById('topicBanner');
+  if (deptFaculty || appConfig.CurrentTopic) {
+    banner.classList.remove('hidden');
+    document.getElementById('topicBannerDeptFaculty').textContent = deptFaculty;
+    document.getElementById('topicBannerTopic').textContent = appConfig.CurrentTopic ? ('หัวข้อ: ' + appConfig.CurrentTopic) : '';
+  }
 }
 
 // ---------- API helpers ----------
@@ -151,6 +188,8 @@ function renderStudentCards() {
 function openModal(student) {
   currentStudent = student;
   document.getElementById('modalStudentName').textContent = student.FullName;
+  document.getElementById('modalStudentMeta').textContent = 'ปี ' + student.Year + ' กลุ่ม ' + student.Group;
+  document.getElementById('modalStudentImage').src = student.ImageURL || 'https://placehold.co/100x100?text=?';
   document.getElementById('submitError').classList.add('hidden');
   renderForm();
   document.getElementById('evalModal').classList.remove('hidden');
@@ -245,15 +284,31 @@ async function submitEvaluationForm() {
   submitBtn.textContent = 'บันทึกผลการประเมิน';
 
   if (res.success) {
-    closeModal();
     evaluatedStudentIds.push(currentStudent.StudentID);
     renderStudentCards();
-    if (window.liff && liff.isInClient && liff.isInClient()) {
-      liff.closeWindow();
-    }
+    showSuccessModal_(currentStudent, res);
+    closeModal();
   } else {
     errEl.textContent = res.message || 'เกิดข้อผิดพลาด กรุณาลองใหม่';
     errEl.classList.remove('hidden');
+  }
+}
+
+// ---------- แสดงผลยืนยันหลังบันทึกสำเร็จ (รูป + คะแนน) ให้อาจารย์เห็นทันทีในหน้าเว็บ ----------
+function showSuccessModal_(student, evalResult) {
+  document.getElementById('successImage').src = student.ImageURL || 'https://placehold.co/100x100?text=?';
+  document.getElementById('successName').textContent = student.FullName;
+  document.getElementById('successScore').textContent = evalResult.totalScore + ' / ' + evalResult.maxScore + ' (' + evalResult.percentage + '%)';
+  document.getElementById('successModal').classList.remove('hidden');
+  document.getElementById('successModal').classList.add('flex');
+}
+
+function closeSuccessModal() {
+  document.getElementById('successModal').classList.add('hidden');
+  document.getElementById('successModal').classList.remove('flex');
+  // ปิดหน้าต่างอัตโนมัติถ้าเปิดผ่าน LINE LIFF ในแอป (การส่ง Flex Message ไปให้อาจารย์ทำหน้าที่ยืนยันซ้ำอีกทางอยู่แล้ว)
+  if (window.liff && liff.isInClient && liff.isInClient()) {
+    // ปล่อยให้อาจารย์เลือกประเมินคนถัดไปในหน้าเดิมแทนการปิดหน้าต่างทันที
   }
 }
 
