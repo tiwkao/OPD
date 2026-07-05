@@ -15,10 +15,21 @@
 
 <!-- ตั้งค่า API_URL ให้ตรงกับ Web App URL ของ Apps Script ที่ deploy ไว้ -->
 <script>
-  const API_URL = 'https://script.google.com/macros/s/AKfycbygq1yetLuXfDUqQXyanf6yNBVLimnToz6vQDbR5tMZ7kXBl02af72wbDIhvHbJ6mRT/exec';
+  const API_URL = 'https://script.google.com/macros/s/XXXXXXXXXXXXXXXXXXXXXX/exec';
 </script>
 
-<div class="max-w-6xl mx-auto p-4 md:p-8">
+<!-- ================= LOGIN GATE ================= -->
+<div id="loginGate" class="fixed inset-0 bg-slate-900/90 flex items-center justify-center z-50 hidden">
+  <div class="bg-white rounded-xl p-6 w-full max-w-sm">
+    <h2 class="text-lg font-bold text-slate-800 mb-1">เข้าสู่ระบบหลังบ้าน</h2>
+    <p id="loginHint" class="text-sm text-slate-500 mb-4"></p>
+    <input id="loginPasswordInput" type="password" placeholder="รหัสผ่านแอดมิน" class="w-full border border-slate-300 rounded-lg px-3 py-2 mb-3" onkeydown="if(event.key==='Enter') doLogin()">
+    <button onclick="doLogin()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg transition">เข้าสู่ระบบ</button>
+    <p id="loginError" class="text-red-600 text-sm mt-2 hidden"></p>
+  </div>
+</div>
+
+<div id="mainApp" class="max-w-6xl mx-auto p-4 md:p-8 hidden">
   <header class="mb-6">
     <h1 class="text-2xl md:text-3xl font-bold text-slate-800">ระบบหลังบ้าน: OPD Teaching Evaluation</h1>
     <p class="text-slate-500 mt-1">จัดการรายชื่อนิสิตแพทย์ ตั้งค่าโครงการ และดูสรุปคะแนน</p>
@@ -43,6 +54,10 @@
         <label class="block text-sm font-medium text-slate-600 mb-1">คณะ</label>
         <input id="cfgFaculty" type="text" class="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="เช่น คณะแพทยศาสตร์">
       </div>
+      <div class="md:col-span-2">
+        <label class="block text-sm font-medium text-slate-600 mb-1">หัวข้อ/รายละเอียดกิจกรรมการเรียนการสอนปัจจุบัน</label>
+        <input id="cfgCurrentTopic" type="text" class="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="เช่น OPD Teaching ครั้งที่ 3: โรคระบบทางเดินหายใจ (แสดงให้อาจารย์เห็นตอนเปิดหน้าประเมิน)">
+      </div>
       <div>
         <label class="block text-sm font-medium text-slate-600 mb-1">Google Drive Folder ID (เก็บรูป นสพ.)</label>
         <input id="cfgDriveFolderId" type="text" class="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="Folder ID">
@@ -57,7 +72,11 @@
       </div>
       <div>
         <label class="block text-sm font-medium text-slate-600 mb-1">LINE Group ID เจ้าหน้าที่</label>
-        <input id="cfgStaffGroupId" type="text" class="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="Group ID">
+        <input id="cfgStaffGroupId" type="text" class="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="Group ID (หรือพิมพ์ 'ลงทะเบียนกลุ่มนี้' ในกลุ่มไลน์เพื่อบันทึกอัตโนมัติ)">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-slate-600 mb-1">ตั้ง/เปลี่ยนรหัสผ่านแอดมิน</label>
+        <input id="cfgAdminPassword" type="password" class="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="เว้นว่างไว้ = ไม่เปลี่ยนรหัสผ่านเดิม">
       </div>
     </div>
     <button onclick="saveConfig()" class="mt-5 bg-blue-600 hover:bg-blue-700 text-white font-medium px-5 py-2.5 rounded-lg transition">บันทึกการตั้งค่า</button>
@@ -113,6 +132,43 @@
 </div>
 
 <script>
+// ---------- Admin auth ----------
+let adminPassword = ''; // เก็บไว้ใน memory เฉพาะช่วง session นี้เท่านั้น (ไม่ persist)
+
+async function checkNeedsLogin() {
+  const cfg = await fetch(API_URL + '?' + new URLSearchParams({ action: 'getConfig' })).then(r => r.json());
+  if (cfg.AdminPassword) {
+    document.getElementById('loginGate').classList.remove('hidden');
+    document.getElementById('loginGate').classList.add('flex');
+    document.getElementById('loginHint').textContent = 'กรุณากรอกรหัสผ่านแอดมินเพื่อเข้าใช้งาน';
+  } else {
+    document.getElementById('loginGate').classList.remove('hidden');
+    document.getElementById('loginGate').classList.add('flex');
+    document.getElementById('loginHint').textContent = 'ยังไม่ได้ตั้งรหัสผ่าน กดเข้าสู่ระบบได้เลย แล้วอย่าลืมไปตั้งรหัสผ่านในแท็บ "ตั้งค่าโครงการ"';
+  }
+}
+
+async function doLogin() {
+  const pwd = document.getElementById('loginPasswordInput').value;
+  const errEl = document.getElementById('loginError');
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ action: 'adminLogin', payload: { adminPassword: pwd } })
+  }).then(r => r.json());
+
+  if (res.success) {
+    adminPassword = pwd;
+    document.getElementById('loginGate').classList.add('hidden');
+    document.getElementById('loginGate').classList.remove('flex');
+    document.getElementById('mainApp').classList.remove('hidden');
+    initApp();
+  } else {
+    errEl.textContent = res.message || 'เข้าสู่ระบบไม่สำเร็จ';
+    errEl.classList.remove('hidden');
+  }
+}
+
 // ---------- Tab switching ----------
 const tabs = ['config', 'students', 'dashboard'];
 function showTab(name) {
@@ -138,10 +194,11 @@ async function apiGet(action, params) {
   return res.json();
 }
 async function apiPost(action, payload) {
+  const payloadWithAuth = { ...payload, adminPassword };
   const res = await fetch(API_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ action, payload })
+    body: JSON.stringify({ action, payload: payloadWithAuth })
   });
   return res.json();
 }
@@ -151,6 +208,7 @@ async function loadConfig() {
   const cfg = await apiGet('getConfig');
   document.getElementById('cfgDepartment').value = cfg.Department || '';
   document.getElementById('cfgFaculty').value = cfg.Faculty || '';
+  document.getElementById('cfgCurrentTopic').value = cfg.CurrentTopic || '';
   document.getElementById('cfgDriveFolderId').value = cfg.DriveFolderId || '';
   document.getElementById('cfgLiffId').value = cfg.LiffId || '';
   document.getElementById('cfgLineToken').value = cfg.LineChannelAccessToken || '';
@@ -162,12 +220,21 @@ async function saveConfig() {
   const payload = {
     Department: document.getElementById('cfgDepartment').value,
     Faculty: document.getElementById('cfgFaculty').value,
+    CurrentTopic: document.getElementById('cfgCurrentTopic').value,
     DriveFolderId: document.getElementById('cfgDriveFolderId').value,
     LiffId: document.getElementById('cfgLiffId').value,
     LineChannelAccessToken: document.getElementById('cfgLineToken').value,
     LineStaffGroupId: document.getElementById('cfgStaffGroupId').value
   };
+  const newPwd = document.getElementById('cfgAdminPassword').value;
+  if (newPwd) {
+    payload.AdminPassword = newPwd;
+  }
   const res = await apiPost('updateConfig', payload);
+  if (res.success && newPwd) {
+    adminPassword = newPwd; // อัปเดตรหัสผ่านที่ใช้ authenticate คำขอถัดไปในเซสชันนี้ทันที
+    document.getElementById('cfgAdminPassword').value = '';
+  }
   statusEl.textContent = res.success ? '✅ บันทึกสำเร็จ' : '❌ ' + res.message;
 }
 
@@ -309,9 +376,12 @@ async function loadDashboard() {
 }
 
 // ---------- init ----------
-loadConfig();
-loadStudentList();
-loadDashboard();
+function initApp() {
+  loadConfig();
+  loadStudentList();
+  loadDashboard();
+}
+checkNeedsLogin();
 </script>
 </body>
 </html>
