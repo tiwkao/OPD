@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ระบบหลังบ้าน - OPD Teaching</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: 'Sarabun', 'Noto Sans Thai', sans-serif; }
+  .card-shadow { box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06); }
+</style>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-slate-50 min-h-screen">
+
+<!-- ตั้งค่า API_URL ให้ตรงกับ Web App URL ของ Apps Script ที่ deploy ไว้ -->
+<script>
+  const API_URL = 'https://script.google.com/macros/s/XXXXXXXXXXXXXXXXXXXXXX/exec';
+</script>
+
+<div class="max-w-6xl mx-auto p-4 md:p-8">
+  <header class="mb-6">
+    <h1 class="text-2xl md:text-3xl font-bold text-slate-800">ระบบหลังบ้าน: OPD Teaching Evaluation</h1>
+    <p class="text-slate-500 mt-1">จัดการรายชื่อนิสิตแพทย์ ตั้งค่าโครงการ และดูสรุปคะแนน</p>
+  </header>
+
+  <!-- Tabs -->
+  <div class="flex gap-2 mb-6 border-b border-slate-200 overflow-x-auto">
+    <button class="tab-btn px-4 py-2 font-medium text-sm rounded-t-lg whitespace-nowrap" data-tab="config">ตั้งค่าโครงการ</button>
+    <button class="tab-btn px-4 py-2 font-medium text-sm rounded-t-lg whitespace-nowrap" data-tab="students">รายชื่อ นสพ.</button>
+    <button class="tab-btn px-4 py-2 font-medium text-sm rounded-t-lg whitespace-nowrap" data-tab="dashboard">Dashboard คะแนน</button>
+  </div>
+
+  <!-- ================= TAB: CONFIG ================= -->
+  <section id="tab-config" class="tab-panel bg-white rounded-xl card-shadow p-6">
+    <h2 class="text-lg font-semibold text-slate-800 mb-4">ข้อมูลหัวข้อโครงการ</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm font-medium text-slate-600 mb-1">ภาควิชา</label>
+        <input id="cfgDepartment" type="text" class="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="เช่น ภาควิชากุมารเวชศาสตร์">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-slate-600 mb-1">คณะ</label>
+        <input id="cfgFaculty" type="text" class="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="เช่น คณะแพทยศาสตร์">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-slate-600 mb-1">Google Drive Folder ID (เก็บรูป นสพ.)</label>
+        <input id="cfgDriveFolderId" type="text" class="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="Folder ID">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-slate-600 mb-1">LIFF ID (หน้าแบบประเมิน)</label>
+        <input id="cfgLiffId" type="text" class="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="LIFF ID">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-slate-600 mb-1">LINE Channel Access Token</label>
+        <input id="cfgLineToken" type="password" class="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="Channel Access Token">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-slate-600 mb-1">LINE Group ID เจ้าหน้าที่</label>
+        <input id="cfgStaffGroupId" type="text" class="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="Group ID">
+      </div>
+    </div>
+    <button onclick="saveConfig()" class="mt-5 bg-blue-600 hover:bg-blue-700 text-white font-medium px-5 py-2.5 rounded-lg transition">บันทึกการตั้งค่า</button>
+    <span id="configStatus" class="ml-3 text-sm"></span>
+  </section>
+
+  <!-- ================= TAB: STUDENTS ================= -->
+  <section id="tab-students" class="tab-panel bg-white rounded-xl card-shadow p-6 hidden">
+    <h2 class="text-lg font-semibold text-slate-800 mb-4">ระบุกลุ่มนิสิตแพทย์</h2>
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+      <div>
+        <label class="block text-sm font-medium text-slate-600 mb-1">นสพ. ปีที่</label>
+        <input id="groupYear" type="text" class="w-full border border-slate-300 rounded-lg px-3 py-2" placeholder="เช่น 5">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-slate-600 mb-1">กลุ่ม</label>
+        <input id="groupName" type="text" class="w-full border border-slate-300 rounded-lg px-3 py-2" placeholder="เช่น A1">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-slate-600 mb-1">จำนวน (คน)</label>
+        <input id="groupCount" type="number" min="1" class="w-full border border-slate-300 rounded-lg px-3 py-2" placeholder="เช่น 8">
+      </div>
+      <div class="flex items-end">
+        <button onclick="generateRows()" class="w-full bg-slate-700 hover:bg-slate-800 text-white font-medium px-4 py-2 rounded-lg transition">สร้างแถวกรอกรายชื่อ</button>
+      </div>
+    </div>
+
+    <div id="studentRowsContainer" class="space-y-3 mb-4"></div>
+
+    <button onclick="saveAllStudents()" id="saveStudentsBtn" class="hidden bg-green-600 hover:bg-green-700 text-white font-medium px-5 py-2.5 rounded-lg transition">
+      บันทึกรายชื่อทั้งหมด
+    </button>
+    <span id="studentSaveStatus" class="ml-3 text-sm"></span>
+
+    <hr class="my-6 border-slate-200">
+
+    <h2 class="text-lg font-semibold text-slate-800 mb-4">รายชื่อ นสพ. ทั้งหมดในระบบ</h2>
+    <div class="flex gap-3 mb-3">
+      <button onclick="loadStudentList()" class="text-sm text-blue-600 hover:underline">รีเฟรชรายชื่อ</button>
+    </div>
+    <div id="studentListTable" class="overflow-x-auto"></div>
+  </section>
+
+  <!-- ================= TAB: DASHBOARD ================= -->
+  <section id="tab-dashboard" class="tab-panel bg-white rounded-xl card-shadow p-6 hidden">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-lg font-semibold text-slate-800">สรุปผลคะแนนการประเมินทั้งหมด</h2>
+      <button onclick="loadDashboard()" class="text-sm text-blue-600 hover:underline">รีเฟรช</button>
+    </div>
+    <div id="dashboardSummaryCards" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6"></div>
+    <div id="dashboardTable" class="overflow-x-auto"></div>
+  </section>
+</div>
+
+<script>
+// ---------- Tab switching ----------
+const tabs = ['config', 'students', 'dashboard'];
+function showTab(name) {
+  tabs.forEach(t => {
+    document.getElementById('tab-' + t).classList.toggle('hidden', t !== name);
+  });
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    const active = btn.dataset.tab === name;
+    btn.classList.toggle('bg-blue-600', active);
+    btn.classList.toggle('text-white', active);
+    btn.classList.toggle('text-slate-500', !active);
+  });
+}
+document.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click', () => showTab(btn.dataset.tab)));
+showTab('config');
+
+// ---------- API helpers ----------
+// ใช้ GET สำหรับอ่านข้อมูล, POST (text/plain) สำหรับเขียนข้อมูล เพื่อเลี่ยง CORS preflight
+async function apiGet(action, params) {
+  params = params || {};
+  const qs = new URLSearchParams({ action, ...params }).toString();
+  const res = await fetch(API_URL + '?' + qs);
+  return res.json();
+}
+async function apiPost(action, payload) {
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ action, payload })
+  });
+  return res.json();
+}
+
+// ---------- CONFIG ----------
+async function loadConfig() {
+  const cfg = await apiGet('getConfig');
+  document.getElementById('cfgDepartment').value = cfg.Department || '';
+  document.getElementById('cfgFaculty').value = cfg.Faculty || '';
+  document.getElementById('cfgDriveFolderId').value = cfg.DriveFolderId || '';
+  document.getElementById('cfgLiffId').value = cfg.LiffId || '';
+  document.getElementById('cfgLineToken').value = cfg.LineChannelAccessToken || '';
+  document.getElementById('cfgStaffGroupId').value = cfg.LineStaffGroupId || '';
+}
+async function saveConfig() {
+  const statusEl = document.getElementById('configStatus');
+  statusEl.textContent = 'กำลังบันทึก...';
+  const payload = {
+    Department: document.getElementById('cfgDepartment').value,
+    Faculty: document.getElementById('cfgFaculty').value,
+    DriveFolderId: document.getElementById('cfgDriveFolderId').value,
+    LiffId: document.getElementById('cfgLiffId').value,
+    LineChannelAccessToken: document.getElementById('cfgLineToken').value,
+    LineStaffGroupId: document.getElementById('cfgStaffGroupId').value
+  };
+  const res = await apiPost('updateConfig', payload);
+  statusEl.textContent = res.success ? '✅ บันทึกสำเร็จ' : '❌ ' + res.message;
+}
+
+// ---------- STUDENT GROUP ROW GENERATION ----------
+function generateRows() {
+  const year = document.getElementById('groupYear').value.trim();
+  const group = document.getElementById('groupName').value.trim();
+  const count = parseInt(document.getElementById('groupCount').value, 10);
+  if (!year || !group || !count || count < 1) {
+    alert('กรุณากรอก ปีที่ / กลุ่ม / จำนวน ให้ครบถ้วน');
+    return;
+  }
+  const container = document.getElementById('studentRowsContainer');
+  container.innerHTML = '';
+  for (let i = 1; i <= count; i++) {
+    const row = document.createElement('div');
+    row.className = 'flex flex-wrap items-center gap-3 border border-slate-200 rounded-lg p-3';
+    row.innerHTML = `
+      <span class="text-sm font-semibold text-slate-500 w-8">#${i}</span>
+      <input type="text" class="student-name flex-1 min-w-[180px] border border-slate-300 rounded-lg px-3 py-2" placeholder="ชื่อ-นามสกุล นสพ. คนที่ ${i}">
+      <input type="file" accept="image/*" class="student-image text-sm" onchange="previewImage(this)">
+      <img class="preview-img w-10 h-10 rounded-full object-cover hidden border border-slate-300">
+      <input type="hidden" class="student-year" value="${year}">
+      <input type="hidden" class="student-group" value="${group}">
+      <input type="hidden" class="student-seq" value="${i}">
+    `;
+    container.appendChild(row);
+  }
+  document.getElementById('saveStudentsBtn').classList.remove('hidden');
+}
+
+function previewImage(input) {
+  const file = input.files[0];
+  const img = input.parentElement.querySelector('.preview-img');
+  if (!file) { img.classList.add('hidden'); return; }
+  const reader = new FileReader();
+  reader.onload = e => { img.src = e.target.result; img.classList.remove('hidden'); };
+  reader.readAsDataURL(file);
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function saveAllStudents() {
+  const statusEl = document.getElementById('studentSaveStatus');
+  const rows = document.querySelectorAll('#studentRowsContainer > div');
+  if (rows.length === 0) return;
+  statusEl.textContent = 'กำลังอัปโหลดรูปและบันทึกข้อมูล...';
+
+  const cfg = await apiGet('getConfig');
+  const students = [];
+
+  for (const row of rows) {
+    const fullName = row.querySelector('.student-name').value.trim();
+    const year = row.querySelector('.student-year').value;
+    const group = row.querySelector('.student-group').value;
+    const seqNo = row.querySelector('.student-seq').value;
+    const fileInput = row.querySelector('.student-image');
+    let imageUrl = '';
+
+    if (fileInput.files[0]) {
+      const base64 = await fileToBase64(fileInput.files[0]);
+      const uploadRes = await apiPost('uploadStudentImage', {
+        base64Data: base64,
+        fileName: fullName.replace(/\s+/g, '_') + '_' + Date.now() + '.jpg',
+        mimeType: fileInput.files[0].type
+      });
+      if (uploadRes.success) imageUrl = uploadRes.imageUrl;
+    }
+
+    students.push({
+      fullName, year, group, seqNo, imageUrl,
+      department: cfg.Department || '', faculty: cfg.Faculty || ''
+    });
+  }
+
+  const res = await apiPost('addStudents', { students, adminUser: 'admin' });
+  statusEl.textContent = res.success ? `✅ บันทึก ${res.studentIds.length} รายชื่อสำเร็จ` : '❌ ' + res.message;
+  document.getElementById('studentRowsContainer').innerHTML = '';
+  document.getElementById('saveStudentsBtn').classList.add('hidden');
+  loadStudentList();
+}
+
+// ---------- STUDENT LIST TABLE ----------
+async function loadStudentList() {
+  const list = await apiGet('getStudentList');
+  const container = document.getElementById('studentListTable');
+  if (!list.length) { container.innerHTML = '<p class="text-slate-400 text-sm">ยังไม่มีรายชื่อ</p>'; return; }
+  let html = `<table class="min-w-full text-sm">
+    <thead><tr class="text-left text-slate-500 border-b border-slate-200">
+      <th class="py-2 pr-3">รูป</th><th class="py-2 pr-3">ชื่อ-นามสกุล</th>
+      <th class="py-2 pr-3">ปีที่</th><th class="py-2 pr-3">กลุ่ม</th><th class="py-2 pr-3">ลำดับ</th>
+    </tr></thead><tbody>`;
+  list.forEach(s => {
+    html += `<tr class="border-b border-slate-100">
+      <td class="py-2 pr-3"><img src="${s.ImageURL || 'https://placehold.co/40x40?text=?'}" class="w-9 h-9 rounded-full object-cover"></td>
+      <td class="py-2 pr-3">${s.FullName}</td>
+      <td class="py-2 pr-3">${s.Year}</td>
+      <td class="py-2 pr-3">${s.Group}</td>
+      <td class="py-2 pr-3">${s.SeqNo}</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  container.innerHTML = html;
+}
+
+// ---------- DASHBOARD ----------
+async function loadDashboard() {
+  const data = await apiGet('getDashboard');
+  document.getElementById('dashboardSummaryCards').innerHTML = `
+    <div class="bg-blue-50 rounded-lg p-4">
+      <p class="text-xs text-blue-500 font-medium">จำนวนการประเมินทั้งหมด</p>
+      <p class="text-2xl font-bold text-blue-700">${data.totalEvaluations}</p>
+    </div>
+    <div class="bg-green-50 rounded-lg p-4">
+      <p class="text-xs text-green-500 font-medium">จำนวน นสพ. ที่ถูกประเมิน</p>
+      <p class="text-2xl font-bold text-green-700">${data.students.length}</p>
+    </div>`;
+
+  let html = `<table class="min-w-full text-sm">
+    <thead><tr class="text-left text-slate-500 border-b border-slate-200">
+      <th class="py-2 pr-3">ชื่อ-นามสกุล</th><th class="py-2 pr-3">จำนวนครั้งที่ถูกประเมิน</th><th class="py-2 pr-3">คะแนนเฉลี่ย (%)</th>
+    </tr></thead><tbody>`;
+  data.students.forEach(s => {
+    html += `<tr class="border-b border-slate-100">
+      <td class="py-2 pr-3">${s.studentName}</td>
+      <td class="py-2 pr-3">${s.totalEvaluations}</td>
+      <td class="py-2 pr-3">${s.avgPercentage}%</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  document.getElementById('dashboardTable').innerHTML = html;
+}
+
+// ---------- init ----------
+loadConfig();
+loadStudentList();
+loadDashboard();
+</script>
+</body>
+</html>
