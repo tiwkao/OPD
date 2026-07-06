@@ -9,7 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   body { font-family: 'Sarabun', 'Noto Sans Thai', sans-serif; }
-  .student-card.evaluated { filter: grayscale(100%); opacity: 0.4; pointer-events: none; }
+  .student-card.evaluated { filter: grayscale(100%); opacity: 0.4; }
   .card-shadow { box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06); }
 </style>
 </head>
@@ -18,6 +18,14 @@
 <script>
   const API_URL = 'https://script.google.com/macros/s/AKfycbygq1yetLuXfDUqQXyanf6yNBVLimnToz6vQDbR5tMZ7kXBl02af72wbDIhvHbJ6mRT/exec';
   const LIFF_ID = '2010610623-0RDPcqtw'; // แทนที่ด้วย LIFF ID จริง
+  // รูป fallback แบบ inline SVG (ไม่พึ่งพา service ภายนอก) ใช้เมื่อ นสพ. ยังไม่มีรูป หรือรูปโหลดไม่ขึ้น
+  const FALLBACK_IMG = 'data:image/svg+xml;utf8,' + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">' +
+    '<rect width="100" height="100" fill="#E2E8F0"/>' +
+    '<circle cx="50" cy="38" r="18" fill="#94A3B8"/>' +
+    '<path d="M50 62c-20 0-32 12-32 26v12h64V88c0-14-12-26-32-26z" fill="#94A3B8"/>' +
+    '</svg>'
+  );
 </script>
 
 <div class="max-w-3xl mx-auto p-4 md:p-6">
@@ -32,10 +40,9 @@
     <p id="topicBannerTopic" class="text-sm text-blue-700 mt-1"></p>
   </div>
 
-  <!-- เลือกวันที่มีกิจกรรมการเรียนการสอน -->
-  <div class="bg-white rounded-xl card-shadow p-4 mb-5">
-    <label class="block text-sm font-medium text-slate-600 mb-2">วันที่มีกิจกรรมการเรียนการสอน</label>
-    <input id="teachingDate" type="date" class="border border-slate-300 rounded-lg px-3 py-2 w-full md:w-64" onchange="onDateChange()">
+  <div class="flex items-center justify-between mb-3">
+    <p id="todayLabel" class="text-sm text-slate-500"></p>
+    <button onclick="refreshEvaluationStatus()" class="text-sm text-blue-600 hover:underline">🔄 รีเฟรชสถานะ</button>
   </div>
 
   <!-- รายชื่อ นสพ. -->
@@ -84,14 +91,51 @@
   </div>
 </div>
 
+<!-- ================= MODAL: ขอแก้ไขคะแนน (สำหรับ นสพ. ที่ประเมินไปแล้ว) ================= -->
+<div id="reEvalModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center p-4 z-50">
+  <div class="bg-white rounded-xl max-w-sm w-full p-6">
+    <div class="flex items-center gap-3 mb-3">
+      <img id="reEvalImage" src="" class="w-12 h-12 rounded-full object-cover border border-slate-200">
+      <div>
+        <h3 class="font-bold text-slate-800">ขอแก้ไขคะแนน</h3>
+        <p id="reEvalStudentName" class="text-sm text-slate-500"></p>
+      </div>
+    </div>
+    <p class="text-sm text-slate-500 mb-3">
+      นสพ. คนนี้ถูกประเมินไปแล้ว ระบบไม่อนุญาตให้แก้ไขคะแนนเองโดยตรง
+      กรุณาระบุเหตุผล ระบบจะส่งคำขอไปให้เจ้าหน้าที่พิจารณาลบผลประเมินเดิมเพื่อให้ท่านประเมินใหม่อีกครั้ง
+    </p>
+    <textarea id="reEvalReason" rows="3" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm mb-3" placeholder="เหตุผลที่ต้องการแก้ไข เช่น กดผิดคน / ให้คะแนนผิดข้อ"></textarea>
+    <div class="flex gap-2">
+      <button onclick="closeReEvalModal()" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 font-medium py-2.5 rounded-lg transition">ยกเลิก</button>
+      <button onclick="submitReEvalRequest()" id="reEvalSubmitBtn" class="flex-1 bg-amber-500 hover:bg-amber-600 text-white font-medium py-2.5 rounded-lg transition">ส่งคำขอ</button>
+    </div>
+    <p id="reEvalError" class="text-red-600 text-sm mt-2 hidden"></p>
+    <p id="reEvalSuccess" class="text-green-600 text-sm mt-2 hidden">✅ ส่งคำขอไปยังเจ้าหน้าที่แล้ว</p>
+  </div>
+</div>
+
 <script>
 let teacherUid = '';
 let teacherName = '';
 let students = [];
 let evaluatedStudentIds = [];
+let pendingReevalStudentIds = [];
 let schema = [];
 let currentStudent = null;
 let appConfig = {};
+let todayDate = '';
+
+/** ใช้วันที่ตามเวลาเครื่อง (local) ของอาจารย์ ไม่ใช้ toISOString() ที่อ้างอิง UTC
+ *  เพราะจะได้วันที่ผิดเพี้ยนในบางช่วงเวลา (เช่น หลังเที่ยงคืนเล็กน้อยตามเวลาไทย
+ *  ซึ่งยังเป็นเวลาบ่ายของเมื่อวานตาม UTC) */
+function getLocalDateStr_() {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
 
 // ---------- LIFF INIT: ดึง LINE UID ของอาจารย์ผู้ประเมิน ----------
 async function initLiff() {
@@ -112,12 +156,21 @@ async function initLiff() {
     document.getElementById('teacherNameLabel').textContent = 'ผู้ประเมิน: ' + teacherName + ' (โหมดทดสอบ)';
   }
 
-  const today = new Date().toISOString().split('T')[0];
-  document.getElementById('teachingDate').value = today;
+  todayDate = getLocalDateStr_();
+  document.getElementById('todayLabel').textContent = 'วันนี้: ' + formatThaiDate_(todayDate);
   await loadConfig();
   await loadSchema();
   await loadStudents();
-  await onDateChange();
+  await refreshEvaluationStatus();
+
+  // รีเฟรชสถานะอัตโนมัติทุก 30 วินาที (เผื่อเจ้าหน้าที่เพิ่งอนุมัติคำขอประเมินใหม่)
+  setInterval(refreshEvaluationStatus, 30000);
+}
+
+function formatThaiDate_(dateStr) {
+  const months = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return `${d} ${months[m - 1]} ${y + 543}`;
 }
 
 // ---------- แสดงรายละเอียดหัวข้อ/ภาควิชา/คณะ ให้อาจารย์เห็นก่อนเริ่มประเมิน ----------
@@ -156,11 +209,11 @@ async function loadStudents() {
   students = await apiGet('getStudentList');
 }
 
-async function onDateChange() {
-  const date = document.getElementById('teachingDate').value;
-  if (!date || !teacherUid) return;
-  const status = await apiGet('getEvaluationStatus', { date, teacherUid });
+async function refreshEvaluationStatus() {
+  if (!teacherUid) return;
+  const status = await apiGet('getEvaluationStatus', { date: todayDate, teacherUid });
   evaluatedStudentIds = status.evaluatedStudentIds || [];
+  pendingReevalStudentIds = status.pendingReevalStudentIds || [];
   renderStudentCards();
 }
 
@@ -169,17 +222,28 @@ function renderStudentCards() {
   container.innerHTML = '';
   students.forEach(s => {
     const isEvaluated = evaluatedStudentIds.includes(s.StudentID);
+    const isPending = pendingReevalStudentIds.includes(s.StudentID);
     const card = document.createElement('div');
     card.className = 'student-card bg-white rounded-xl card-shadow p-3 text-center cursor-pointer hover:shadow-md transition' + (isEvaluated ? ' evaluated' : '');
+
+    let buttonHtml;
+    if (isPending) {
+      buttonHtml = `<button class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-amber-100 text-amber-700">รออนุมัติ ⏳</button>`;
+    } else if (isEvaluated) {
+      buttonHtml = `<button class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-200 text-slate-500">ประเมินแล้ว - ขอแก้ไข</button>`;
+    } else {
+      buttonHtml = `<button class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-600 text-white">ประเมิน</button>`;
+    }
+
     card.innerHTML = `
-      <img src="${s.ImageURL || 'https://placehold.co/120x120?text=?'}" class="w-20 h-20 rounded-full object-cover mx-auto mb-2 border-2 border-slate-200">
+      <img src="${s.ImageURL || FALLBACK_IMG}" onerror="this.onerror=null;this.src='${FALLBACK_IMG}'" class="w-20 h-20 rounded-full object-cover mx-auto mb-2 border-2 border-slate-200">
       <p class="font-medium text-sm text-slate-800 truncate">${s.FullName}</p>
       <p class="text-xs text-slate-400 mb-2">ปี ${s.Year} กลุ่ม ${s.Group}</p>
-      <button class="text-xs font-semibold px-3 py-1.5 rounded-lg ${isEvaluated ? 'bg-slate-200 text-slate-500' : 'bg-blue-600 text-white'}">
-        ${isEvaluated ? 'ประเมินแล้ว ❌' : 'ประเมิน'}
-      </button>
+      ${buttonHtml}
     `;
-    if (!isEvaluated) card.addEventListener('click', () => openModal(s));
+    if (!isPending) {
+      card.addEventListener('click', () => isEvaluated ? openReEvalModal(s) : openModal(s));
+    }
     container.appendChild(card);
   });
 }
@@ -189,7 +253,8 @@ function openModal(student) {
   currentStudent = student;
   document.getElementById('modalStudentName').textContent = student.FullName;
   document.getElementById('modalStudentMeta').textContent = 'ปี ' + student.Year + ' กลุ่ม ' + student.Group;
-  document.getElementById('modalStudentImage').src = student.ImageURL || 'https://placehold.co/100x100?text=?';
+  document.getElementById('modalStudentImage').src = student.ImageURL || FALLBACK_IMG;
+  document.getElementById('modalStudentImage').onerror = function() { this.onerror = null; this.src = FALLBACK_IMG; };
   document.getElementById('submitError').classList.add('hidden');
   renderForm();
   document.getElementById('evalModal').classList.remove('hidden');
@@ -275,7 +340,7 @@ async function submitEvaluationForm() {
     studentImageUrl: currentStudent.ImageURL,
     teacherUid: teacherUid,
     teacherName: teacherName,
-    evalDate: document.getElementById('teachingDate').value,
+    evalDate: todayDate,
     answers: answers
   };
 
@@ -296,7 +361,8 @@ async function submitEvaluationForm() {
 
 // ---------- แสดงผลยืนยันหลังบันทึกสำเร็จ (รูป + คะแนน) ให้อาจารย์เห็นทันทีในหน้าเว็บ ----------
 function showSuccessModal_(student, evalResult) {
-  document.getElementById('successImage').src = student.ImageURL || 'https://placehold.co/100x100?text=?';
+  document.getElementById('successImage').src = student.ImageURL || FALLBACK_IMG;
+  document.getElementById('successImage').onerror = function() { this.onerror = null; this.src = FALLBACK_IMG; };
   document.getElementById('successName').textContent = student.FullName;
   document.getElementById('successScore').textContent = evalResult.totalScore + ' / ' + evalResult.maxScore + ' (' + evalResult.percentage + '%)';
   document.getElementById('successModal').classList.remove('hidden');
@@ -309,6 +375,58 @@ function closeSuccessModal() {
   // ปิดหน้าต่างอัตโนมัติถ้าเปิดผ่าน LINE LIFF ในแอป (การส่ง Flex Message ไปให้อาจารย์ทำหน้าที่ยืนยันซ้ำอีกทางอยู่แล้ว)
   if (window.liff && liff.isInClient && liff.isInClient()) {
     // ปล่อยให้อาจารย์เลือกประเมินคนถัดไปในหน้าเดิมแทนการปิดหน้าต่างทันที
+  }
+}
+
+// ---------- ขอแก้ไขคะแนน (นสพ. ที่ประเมินไปแล้ว) ----------
+function openReEvalModal(student) {
+  currentStudent = student;
+  document.getElementById('reEvalImage').src = student.ImageURL || FALLBACK_IMG;
+  document.getElementById('reEvalImage').onerror = function() { this.onerror = null; this.src = FALLBACK_IMG; };
+  document.getElementById('reEvalStudentName').textContent = student.FullName + ' (ปี ' + student.Year + ' กลุ่ม ' + student.Group + ')';
+  document.getElementById('reEvalReason').value = '';
+  document.getElementById('reEvalError').classList.add('hidden');
+  document.getElementById('reEvalSuccess').classList.add('hidden');
+  document.getElementById('reEvalSubmitBtn').classList.remove('hidden');
+  document.getElementById('reEvalModal').classList.remove('hidden');
+  document.getElementById('reEvalModal').classList.add('flex');
+}
+function closeReEvalModal() {
+  document.getElementById('reEvalModal').classList.add('hidden');
+  document.getElementById('reEvalModal').classList.remove('flex');
+}
+
+async function submitReEvalRequest() {
+  const reason = document.getElementById('reEvalReason').value.trim();
+  const errEl = document.getElementById('reEvalError');
+  const successEl = document.getElementById('reEvalSuccess');
+  errEl.classList.add('hidden');
+
+  const btn = document.getElementById('reEvalSubmitBtn');
+  btn.disabled = true;
+  btn.textContent = 'กำลังส่งคำขอ...';
+
+  const res = await apiPost('requestReEvaluation', {
+    studentId: currentStudent.StudentID,
+    studentName: currentStudent.FullName,
+    teacherUid: teacherUid,
+    teacherName: teacherName,
+    evalDate: todayDate,
+    reason: reason
+  });
+
+  btn.disabled = false;
+  btn.textContent = 'ส่งคำขอ';
+
+  if (res.success) {
+    successEl.classList.remove('hidden');
+    btn.classList.add('hidden');
+    pendingReevalStudentIds.push(currentStudent.StudentID);
+    renderStudentCards();
+    setTimeout(closeReEvalModal, 1500);
+  } else {
+    errEl.textContent = res.message || 'ส่งคำขอไม่สำเร็จ กรุณาลองใหม่';
+    errEl.classList.remove('hidden');
   }
 }
 
