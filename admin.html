@@ -39,6 +39,7 @@
   <div class="flex gap-2 mb-6 border-b border-slate-200 overflow-x-auto">
     <button class="tab-btn px-4 py-2 font-medium text-sm rounded-t-lg whitespace-nowrap" data-tab="config">ตั้งค่าโครงการ</button>
     <button class="tab-btn px-4 py-2 font-medium text-sm rounded-t-lg whitespace-nowrap" data-tab="students">รายชื่อ นสพ.</button>
+    <button class="tab-btn px-4 py-2 font-medium text-sm rounded-t-lg whitespace-nowrap" data-tab="reeval">คำขอประเมินใหม่<span id="reevalBadge" class="hidden ml-1 bg-red-500 text-white text-xs px-1.5 py-0.5 rounded-full"></span></button>
     <button class="tab-btn px-4 py-2 font-medium text-sm rounded-t-lg whitespace-nowrap" data-tab="dashboard">Dashboard คะแนน</button>
   </div>
 
@@ -120,6 +121,19 @@
     <div id="studentListTable" class="overflow-x-auto"></div>
   </section>
 
+  <!-- ================= TAB: REEVAL REQUESTS ================= -->
+  <section id="tab-reeval" class="tab-panel bg-white rounded-xl card-shadow p-6 hidden">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-lg font-semibold text-slate-800">คำขอประเมินใหม่ (รออนุมัติ)</h2>
+      <button onclick="loadReevalRequests()" class="text-sm text-blue-600 hover:underline">รีเฟรช</button>
+    </div>
+    <p class="text-sm text-slate-500 mb-4">
+      เมื่ออนุมัติ ระบบจะลบผลการประเมินเดิมของ นสพ. คนนั้น (เฉพาะของอาจารย์ท่านที่ขอ ในวันที่ระบุ) ออกจากฐานข้อมูล
+      เพื่อให้อาจารย์สามารถกลับไปประเมินใหม่ได้ทันที
+    </p>
+    <div id="reevalRequestsList" class="space-y-3"></div>
+  </section>
+
   <!-- ================= TAB: DASHBOARD ================= -->
   <section id="tab-dashboard" class="tab-panel bg-white rounded-xl card-shadow p-6 hidden">
     <div class="flex items-center justify-between mb-4">
@@ -170,7 +184,7 @@ async function doLogin() {
 }
 
 // ---------- Tab switching ----------
-const tabs = ['config', 'students', 'dashboard'];
+const tabs = ['config', 'students', 'reeval', 'dashboard'];
 function showTab(name) {
   tabs.forEach(t => {
     document.getElementById('tab-' + t).classList.toggle('hidden', t !== name);
@@ -189,7 +203,7 @@ showTab('config');
 // ใช้ GET สำหรับอ่านข้อมูล, POST (text/plain) สำหรับเขียนข้อมูล เพื่อเลี่ยง CORS preflight
 async function apiGet(action, params) {
   params = params || {};
-  const qs = new URLSearchParams({ action, ...params }).toString();
+  const qs = new URLSearchParams({ action, adminPassword, ...params }).toString();
   const res = await fetch(API_URL + '?' + qs);
   return res.json();
 }
@@ -336,7 +350,7 @@ async function loadStudentList() {
     </tr></thead><tbody>`;
   list.forEach(s => {
     html += `<tr class="border-b border-slate-100">
-      <td class="py-2 pr-3"><img src="${s.ImageURL || 'https://placehold.co/40x40?text=?'}" class="w-9 h-9 rounded-full object-cover"></td>
+      <td class="py-2 pr-3"><img src="${s.ImageURL || ''}" onerror="this.onerror=null;this.src='https://placehold.co/40x40?text=?';" class="w-9 h-9 rounded-full object-cover bg-slate-100"></td>
       <td class="py-2 pr-3">${s.FullName}</td>
       <td class="py-2 pr-3">${s.Year}</td>
       <td class="py-2 pr-3">${s.Group}</td>
@@ -345,6 +359,49 @@ async function loadStudentList() {
   });
   html += '</tbody></table>';
   container.innerHTML = html;
+}
+
+// ---------- REEVAL REQUESTS ----------
+async function loadReevalRequests() {
+  const requests = await apiGet('getPendingReevalRequests');
+  const container = document.getElementById('reevalRequestsList');
+  const badge = document.getElementById('reevalBadge');
+
+  if (requests.length > 0) {
+    badge.textContent = requests.length;
+    badge.classList.remove('hidden');
+  } else {
+    badge.classList.add('hidden');
+  }
+
+  if (!requests.length) {
+    container.innerHTML = '<p class="text-slate-400 text-sm">ไม่มีคำขอที่รออนุมัติ</p>';
+    return;
+  }
+
+  container.innerHTML = requests.map(r => `
+    <div class="border border-amber-200 bg-amber-50 rounded-lg p-4">
+      <div class="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p class="font-semibold text-slate-800">${r.StudentName}</p>
+          <p class="text-sm text-slate-500">อาจารย์: ${r.TeacherName} · วันที่: ${r.EvalDate}</p>
+          ${r.Reason ? `<p class="text-sm text-slate-600 mt-1">เหตุผล: ${r.Reason}</p>` : ''}
+        </div>
+        <div class="flex gap-2 shrink-0">
+          <button onclick="respondReeval('${r.RequestID}', true)" class="bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-3 py-1.5 rounded-lg transition">อนุมัติ</button>
+          <button onclick="respondReeval('${r.RequestID}', false)" class="bg-slate-200 hover:bg-slate-300 text-slate-700 text-sm font-medium px-3 py-1.5 rounded-lg transition">ปฏิเสธ</button>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function respondReeval(requestId, approve) {
+  const action = approve ? 'approveReevalRequest' : 'rejectReevalRequest';
+  const res = await apiPost(action, { requestId, adminUser: 'admin' });
+  if (!res.success) alert(res.message || 'ทำรายการไม่สำเร็จ');
+  loadReevalRequests();
+  if (approve) loadDashboard();
 }
 
 // ---------- DASHBOARD ----------
@@ -379,6 +436,7 @@ async function loadDashboard() {
 function initApp() {
   loadConfig();
   loadStudentList();
+  loadReevalRequests();
   loadDashboard();
 }
 checkNeedsLogin();
