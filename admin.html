@@ -3,434 +3,443 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>แบบประเมิน OPD Teaching</title>
+<title>ระบบหลังบ้าน - OPD Teaching</title>
 <script src="https://cdn.tailwindcss.com"></script>
-<script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   body { font-family: 'Sarabun', 'Noto Sans Thai', sans-serif; }
-  .student-card.evaluated { filter: grayscale(100%); opacity: 0.4; }
   .card-shadow { box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06); }
 </style>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
-<body class="bg-slate-50 min-h-screen pb-10">
+<body class="bg-slate-50 min-h-screen">
 
+<!-- ตั้งค่า API_URL ให้ตรงกับ Web App URL ของ Apps Script ที่ deploy ไว้ -->
 <script>
   const API_URL = 'https://script.google.com/macros/s/AKfycbygq1yetLuXfDUqQXyanf6yNBVLimnToz6vQDbR5tMZ7kXBl02af72wbDIhvHbJ6mRT/exec';
-  const LIFF_ID = '2010610623-0RDPcqtw'; // แทนที่ด้วย LIFF ID จริง
-  // รูป fallback แบบ inline SVG (ไม่พึ่งพา service ภายนอก) ใช้เมื่อ นสพ. ยังไม่มีรูป หรือรูปโหลดไม่ขึ้น
-  const FALLBACK_IMG = 'data:image/svg+xml;utf8,' + encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">' +
-    '<rect width="100" height="100" fill="#E2E8F0"/>' +
-    '<circle cx="50" cy="38" r="18" fill="#94A3B8"/>' +
-    '<path d="M50 62c-20 0-32 12-32 26v12h64V88c0-14-12-26-32-26z" fill="#94A3B8"/>' +
-    '</svg>'
-  );
 </script>
 
-<div class="max-w-3xl mx-auto p-4 md:p-6">
-  <header class="mb-5">
-    <h1 class="text-xl md:text-2xl font-bold text-slate-800">แบบประเมินนักศึกษาแพทย์ (OPD Teaching)</h1>
-    <p id="teacherNameLabel" class="text-slate-500 text-sm mt-1"></p>
+<!-- ================= LOGIN GATE ================= -->
+<div id="loginGate" class="fixed inset-0 bg-slate-900/90 flex items-center justify-center z-50 hidden">
+  <div class="bg-white rounded-xl p-6 w-full max-w-sm">
+    <h2 class="text-lg font-bold text-slate-800 mb-1">เข้าสู่ระบบหลังบ้าน</h2>
+    <p id="loginHint" class="text-sm text-slate-500 mb-4"></p>
+    <input id="loginPasswordInput" type="password" placeholder="รหัสผ่านแอดมิน" class="w-full border border-slate-300 rounded-lg px-3 py-2 mb-3" onkeydown="if(event.key==='Enter') doLogin()">
+    <button onclick="doLogin()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg transition">เข้าสู่ระบบ</button>
+    <p id="loginError" class="text-red-600 text-sm mt-2 hidden"></p>
+  </div>
+</div>
+
+<div id="mainApp" class="max-w-6xl mx-auto p-4 md:p-8 hidden">
+  <header class="mb-6">
+    <h1 class="text-2xl md:text-3xl font-bold text-slate-800">ระบบหลังบ้าน: OPD Teaching Evaluation</h1>
+    <p class="text-slate-500 mt-1">จัดการรายชื่อนิสิตแพทย์ ตั้งค่าโครงการ และดูสรุปคะแนน</p>
   </header>
 
-  <!-- รายละเอียดหัวข้อ/ภาควิชา/คณะ ของกิจกรรมที่กำลังประเมิน -->
-  <div id="topicBanner" class="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-5 hidden">
-    <p id="topicBannerDeptFaculty" class="text-sm font-medium text-blue-800"></p>
-    <p id="topicBannerTopic" class="text-sm text-blue-700 mt-1"></p>
+  <!-- Tabs -->
+  <div class="flex gap-2 mb-6 border-b border-slate-200 overflow-x-auto">
+    <button class="tab-btn px-4 py-2 font-medium text-sm rounded-t-lg whitespace-nowrap" data-tab="config">ตั้งค่าโครงการ</button>
+    <button class="tab-btn px-4 py-2 font-medium text-sm rounded-t-lg whitespace-nowrap" data-tab="students">รายชื่อ นสพ.</button>
+    <button class="tab-btn px-4 py-2 font-medium text-sm rounded-t-lg whitespace-nowrap" data-tab="reeval">คำขอประเมินใหม่<span id="reevalBadge" class="hidden ml-1 bg-red-500 text-white text-xs px-1.5 py-0.5 rounded-full"></span></button>
+    <button class="tab-btn px-4 py-2 font-medium text-sm rounded-t-lg whitespace-nowrap" data-tab="dashboard">Dashboard คะแนน</button>
   </div>
 
-  <div class="flex items-center justify-between mb-3">
-    <p id="todayLabel" class="text-sm text-slate-500"></p>
-    <button onclick="refreshEvaluationStatus()" class="text-sm text-blue-600 hover:underline">🔄 รีเฟรชสถานะ</button>
-  </div>
-
-  <!-- รายชื่อ นสพ. -->
-  <div id="studentCards" class="grid grid-cols-2 md:grid-cols-3 gap-4"></div>
-</div>
-
-<!-- ================= MODAL: แบบฟอร์มประเมิน ================= -->
-<div id="evalModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center p-4 z-50">
-  <div class="bg-white rounded-xl max-w-xl w-full max-h-[90vh] overflow-y-auto">
-    <div class="sticky top-0 bg-white border-b border-slate-200 p-4 flex items-center gap-3">
-      <img id="modalStudentImage" src="" class="w-12 h-12 rounded-full object-cover border border-slate-200">
-      <div class="flex-1">
-        <h2 id="modalStudentName" class="font-bold text-lg text-slate-800"></h2>
-        <p id="modalStudentMeta" class="text-xs text-slate-400"></p>
-      </div>
-      <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>
-    </div>
-
-    <div class="p-4 bg-amber-50 text-amber-800 text-sm m-4 rounded-lg border border-amber-200">
-      คำชี้แจงการใช้แบบประเมิน: ตัวเลขด้านหน้าข้อความคือคะแนนเต็มในแต่ละข้อประเมิน ตามด้วยรายละเอียดที่จะประเมิน เช่น
-      "10 ตรงเวลา" เพื่อป้องกันการข้ามหรือลืมติ๊กให้คะแนน จำเป็นต้องล็อกการข้ามหน้าไว้
-      ดังนั้น หากท่านไม่มีส่วนเกี่ยวข้องกับการประเมิน/นสพ. คนนั้นๆ กรุณากดช่อง NA
-    </div>
-
-    <form id="evalForm" class="px-4 pb-4 space-y-5"></form>
-
-    <div class="sticky bottom-0 bg-white border-t border-slate-200 p-4">
-      <button onclick="submitEvaluationForm()" id="submitBtn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition">
-        บันทึกผลการประเมิน
-      </button>
-      <p id="submitError" class="text-red-600 text-sm mt-2 hidden"></p>
-    </div>
-  </div>
-</div>
-
-<!-- ================= MODAL: ยืนยันหลังบันทึกสำเร็จ (แสดงรูป+คะแนนให้อาจารย์เห็นทันที) ================= -->
-<div id="successModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center p-4 z-50">
-  <div class="bg-white rounded-xl max-w-sm w-full p-6 text-center">
-    <img id="successImage" src="" class="w-24 h-24 rounded-full object-cover mx-auto mb-3 border-2 border-green-200">
-    <p class="text-green-600 font-semibold text-sm mb-1">บันทึกผลการประเมินสำเร็จ ✅</p>
-    <h3 id="successName" class="font-bold text-lg text-slate-800"></h3>
-    <p id="successScore" class="text-2xl font-bold text-blue-600 my-2"></p>
-    <button onclick="closeSuccessModal()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg transition mt-2">
-      ประเมินคนถัดไป
-    </button>
-  </div>
-</div>
-
-<!-- ================= MODAL: ขอแก้ไขคะแนน (สำหรับ นสพ. ที่ประเมินไปแล้ว) ================= -->
-<div id="reEvalModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center p-4 z-50">
-  <div class="bg-white rounded-xl max-w-sm w-full p-6">
-    <div class="flex items-center gap-3 mb-3">
-      <img id="reEvalImage" src="" class="w-12 h-12 rounded-full object-cover border border-slate-200">
+  <!-- ================= TAB: CONFIG ================= -->
+  <section id="tab-config" class="tab-panel bg-white rounded-xl card-shadow p-6">
+    <h2 class="text-lg font-semibold text-slate-800 mb-4">ข้อมูลหัวข้อโครงการ</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
       <div>
-        <h3 class="font-bold text-slate-800">ขอแก้ไขคะแนน</h3>
-        <p id="reEvalStudentName" class="text-sm text-slate-500"></p>
+        <label class="block text-sm font-medium text-slate-600 mb-1">ภาควิชา</label>
+        <input id="cfgDepartment" type="text" class="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="เช่น ภาควิชากุมารเวชศาสตร์">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-slate-600 mb-1">คณะ</label>
+        <input id="cfgFaculty" type="text" class="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="เช่น คณะแพทยศาสตร์">
+      </div>
+      <div class="md:col-span-2">
+        <label class="block text-sm font-medium text-slate-600 mb-1">หัวข้อ/รายละเอียดกิจกรรมการเรียนการสอนปัจจุบัน</label>
+        <input id="cfgCurrentTopic" type="text" class="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="เช่น OPD Teaching ครั้งที่ 3: โรคระบบทางเดินหายใจ (แสดงให้อาจารย์เห็นตอนเปิดหน้าประเมิน)">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-slate-600 mb-1">Google Drive Folder ID (เก็บรูป นสพ.)</label>
+        <input id="cfgDriveFolderId" type="text" class="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="Folder ID">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-slate-600 mb-1">LIFF ID (หน้าแบบประเมิน)</label>
+        <input id="cfgLiffId" type="text" class="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="LIFF ID">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-slate-600 mb-1">LINE Channel Access Token</label>
+        <input id="cfgLineToken" type="password" class="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="Channel Access Token">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-slate-600 mb-1">LINE Group ID เจ้าหน้าที่</label>
+        <input id="cfgStaffGroupId" type="text" class="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="Group ID (หรือพิมพ์ 'ลงทะเบียนกลุ่มนี้' ในกลุ่มไลน์เพื่อบันทึกอัตโนมัติ)">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-slate-600 mb-1">ตั้ง/เปลี่ยนรหัสผ่านแอดมิน</label>
+        <input id="cfgAdminPassword" type="password" class="w-full border border-slate-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="เว้นว่างไว้ = ไม่เปลี่ยนรหัสผ่านเดิม">
       </div>
     </div>
-    <p class="text-sm text-slate-500 mb-3">
-      นสพ. คนนี้ถูกประเมินไปแล้ว ระบบไม่อนุญาตให้แก้ไขคะแนนเองโดยตรง
-      กรุณาระบุเหตุผล ระบบจะส่งคำขอไปให้เจ้าหน้าที่พิจารณาลบผลประเมินเดิมเพื่อให้ท่านประเมินใหม่อีกครั้ง
-    </p>
-    <textarea id="reEvalReason" rows="3" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm mb-3" placeholder="เหตุผลที่ต้องการแก้ไข เช่น กดผิดคน / ให้คะแนนผิดข้อ"></textarea>
-    <div class="flex gap-2">
-      <button onclick="closeReEvalModal()" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 font-medium py-2.5 rounded-lg transition">ยกเลิก</button>
-      <button onclick="submitReEvalRequest()" id="reEvalSubmitBtn" class="flex-1 bg-amber-500 hover:bg-amber-600 text-white font-medium py-2.5 rounded-lg transition">ส่งคำขอ</button>
+    <button onclick="saveConfig()" class="mt-5 bg-blue-600 hover:bg-blue-700 text-white font-medium px-5 py-2.5 rounded-lg transition">บันทึกการตั้งค่า</button>
+    <span id="configStatus" class="ml-3 text-sm"></span>
+  </section>
+
+  <!-- ================= TAB: STUDENTS ================= -->
+  <section id="tab-students" class="tab-panel bg-white rounded-xl card-shadow p-6 hidden">
+    <h2 class="text-lg font-semibold text-slate-800 mb-4">ระบุกลุ่มนิสิตแพทย์</h2>
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+      <div>
+        <label class="block text-sm font-medium text-slate-600 mb-1">นสพ. ปีที่</label>
+        <input id="groupYear" type="text" class="w-full border border-slate-300 rounded-lg px-3 py-2" placeholder="เช่น 5">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-slate-600 mb-1">กลุ่ม</label>
+        <input id="groupName" type="text" class="w-full border border-slate-300 rounded-lg px-3 py-2" placeholder="เช่น A1">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-slate-600 mb-1">จำนวน (คน)</label>
+        <input id="groupCount" type="number" min="1" class="w-full border border-slate-300 rounded-lg px-3 py-2" placeholder="เช่น 8">
+      </div>
+      <div class="flex items-end">
+        <button onclick="generateRows()" class="w-full bg-slate-700 hover:bg-slate-800 text-white font-medium px-4 py-2 rounded-lg transition">สร้างแถวกรอกรายชื่อ</button>
+      </div>
     </div>
-    <p id="reEvalError" class="text-red-600 text-sm mt-2 hidden"></p>
-    <p id="reEvalSuccess" class="text-green-600 text-sm mt-2 hidden">✅ ส่งคำขอไปยังเจ้าหน้าที่แล้ว</p>
-  </div>
+
+    <div id="studentRowsContainer" class="space-y-3 mb-4"></div>
+
+    <button onclick="saveAllStudents()" id="saveStudentsBtn" class="hidden bg-green-600 hover:bg-green-700 text-white font-medium px-5 py-2.5 rounded-lg transition">
+      บันทึกรายชื่อทั้งหมด
+    </button>
+    <span id="studentSaveStatus" class="ml-3 text-sm"></span>
+
+    <hr class="my-6 border-slate-200">
+
+    <h2 class="text-lg font-semibold text-slate-800 mb-4">รายชื่อ นสพ. ทั้งหมดในระบบ</h2>
+    <div class="flex gap-3 mb-3">
+      <button onclick="loadStudentList()" class="text-sm text-blue-600 hover:underline">รีเฟรชรายชื่อ</button>
+    </div>
+    <div id="studentListTable" class="overflow-x-auto"></div>
+  </section>
+
+  <!-- ================= TAB: REEVAL REQUESTS ================= -->
+  <section id="tab-reeval" class="tab-panel bg-white rounded-xl card-shadow p-6 hidden">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-lg font-semibold text-slate-800">คำขอประเมินใหม่ (รออนุมัติ)</h2>
+      <button onclick="loadReevalRequests()" class="text-sm text-blue-600 hover:underline">รีเฟรช</button>
+    </div>
+    <p class="text-sm text-slate-500 mb-4">
+      เมื่ออนุมัติ ระบบจะลบผลการประเมินเดิมของ นสพ. คนนั้น (เฉพาะของอาจารย์ท่านที่ขอ ในวันที่ระบุ) ออกจากฐานข้อมูล
+      เพื่อให้อาจารย์สามารถกลับไปประเมินใหม่ได้ทันที
+    </p>
+    <div id="reevalRequestsList" class="space-y-3"></div>
+  </section>
+
+  <!-- ================= TAB: DASHBOARD ================= -->
+  <section id="tab-dashboard" class="tab-panel bg-white rounded-xl card-shadow p-6 hidden">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-lg font-semibold text-slate-800">สรุปผลคะแนนการประเมินทั้งหมด</h2>
+      <button onclick="loadDashboard()" class="text-sm text-blue-600 hover:underline">รีเฟรช</button>
+    </div>
+    <div id="dashboardSummaryCards" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6"></div>
+    <div id="dashboardTable" class="overflow-x-auto"></div>
+  </section>
 </div>
 
 <script>
-let teacherUid = '';
-let teacherName = '';
-let students = [];
-let evaluatedStudentIds = [];
-let pendingReevalStudentIds = [];
-let schema = [];
-let currentStudent = null;
-let appConfig = {};
-let todayDate = '';
+// ---------- Admin auth ----------
+let adminPassword = ''; // เก็บไว้ใน memory เฉพาะช่วง session นี้เท่านั้น (ไม่ persist)
 
-/** ใช้วันที่ตามเวลาเครื่อง (local) ของอาจารย์ ไม่ใช้ toISOString() ที่อ้างอิง UTC
- *  เพราะจะได้วันที่ผิดเพี้ยนในบางช่วงเวลา (เช่น หลังเที่ยงคืนเล็กน้อยตามเวลาไทย
- *  ซึ่งยังเป็นเวลาบ่ายของเมื่อวานตาม UTC) */
-function getLocalDateStr_() {
-  const d = new Date();
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
-}
-
-// ---------- LIFF INIT: ดึง LINE UID ของอาจารย์ผู้ประเมิน ----------
-async function initLiff() {
-  try {
-    await liff.init({ liffId: LIFF_ID });
-    if (!liff.isLoggedIn()) { liff.login(); return; }
-    const profile = await liff.getProfile();
-    teacherUid = profile.userId;
-    teacherName = profile.displayName;
-    document.getElementById('teacherNameLabel').textContent = 'ผู้ประเมิน: ' + teacherName;
-    // ลงทะเบียนผู้ใช้ (ถ้ายังไม่เคยลงทะเบียน)
-    await apiPost('registerUser', { uid: teacherUid, name: teacherName, role: 'teacher' });
-  } catch (err) {
-    console.error('LIFF init error', err);
-    // fallback สำหรับทดสอบนอก LINE
-    teacherUid = 'TEST_UID_' + Math.floor(Math.random() * 1000);
-    teacherName = 'อาจารย์ทดสอบ';
-    document.getElementById('teacherNameLabel').textContent = 'ผู้ประเมิน: ' + teacherName + ' (โหมดทดสอบ)';
-  }
-
-  todayDate = getLocalDateStr_();
-  document.getElementById('todayLabel').textContent = 'วันนี้: ' + formatThaiDate_(todayDate);
-  await loadConfig();
-  await loadSchema();
-  await loadStudents();
-  await refreshEvaluationStatus();
-
-  // รีเฟรชสถานะอัตโนมัติทุก 30 วินาที (เผื่อเจ้าหน้าที่เพิ่งอนุมัติคำขอประเมินใหม่)
-  setInterval(refreshEvaluationStatus, 30000);
-}
-
-function formatThaiDate_(dateStr) {
-  const months = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
-  const [y, m, d] = dateStr.split('-').map(Number);
-  return `${d} ${months[m - 1]} ${y + 543}`;
-}
-
-// ---------- แสดงรายละเอียดหัวข้อ/ภาควิชา/คณะ ให้อาจารย์เห็นก่อนเริ่มประเมิน ----------
-async function loadConfig() {
-  appConfig = await apiGet('getConfig');
-  const deptFaculty = [appConfig.Department, appConfig.Faculty].filter(Boolean).join(' | ');
-  const banner = document.getElementById('topicBanner');
-  if (deptFaculty || appConfig.CurrentTopic) {
-    banner.classList.remove('hidden');
-    document.getElementById('topicBannerDeptFaculty').textContent = deptFaculty;
-    document.getElementById('topicBannerTopic').textContent = appConfig.CurrentTopic ? ('หัวข้อ: ' + appConfig.CurrentTopic) : '';
+async function checkNeedsLogin() {
+  const cfg = await fetch(API_URL + '?' + new URLSearchParams({ action: 'getConfig' })).then(r => r.json());
+  if (cfg.AdminPassword) {
+    document.getElementById('loginGate').classList.remove('hidden');
+    document.getElementById('loginGate').classList.add('flex');
+    document.getElementById('loginHint').textContent = 'กรุณากรอกรหัสผ่านแอดมินเพื่อเข้าใช้งาน';
+  } else {
+    document.getElementById('loginGate').classList.remove('hidden');
+    document.getElementById('loginGate').classList.add('flex');
+    document.getElementById('loginHint').textContent = 'ยังไม่ได้ตั้งรหัสผ่าน กดเข้าสู่ระบบได้เลย แล้วอย่าลืมไปตั้งรหัสผ่านในแท็บ "ตั้งค่าโครงการ"';
   }
 }
+
+async function doLogin() {
+  const pwd = document.getElementById('loginPasswordInput').value;
+  const errEl = document.getElementById('loginError');
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ action: 'adminLogin', payload: { adminPassword: pwd } })
+  }).then(r => r.json());
+
+  if (res.success) {
+    adminPassword = pwd;
+    document.getElementById('loginGate').classList.add('hidden');
+    document.getElementById('loginGate').classList.remove('flex');
+    document.getElementById('mainApp').classList.remove('hidden');
+    initApp();
+  } else {
+    errEl.textContent = res.message || 'เข้าสู่ระบบไม่สำเร็จ';
+    errEl.classList.remove('hidden');
+  }
+}
+
+// ---------- Tab switching ----------
+const tabs = ['config', 'students', 'reeval', 'dashboard'];
+function showTab(name) {
+  tabs.forEach(t => {
+    document.getElementById('tab-' + t).classList.toggle('hidden', t !== name);
+  });
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    const active = btn.dataset.tab === name;
+    btn.classList.toggle('bg-blue-600', active);
+    btn.classList.toggle('text-white', active);
+    btn.classList.toggle('text-slate-500', !active);
+  });
+}
+document.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click', () => showTab(btn.dataset.tab)));
+showTab('config');
 
 // ---------- API helpers ----------
+// ใช้ GET สำหรับอ่านข้อมูล, POST (text/plain) สำหรับเขียนข้อมูล เพื่อเลี่ยง CORS preflight
 async function apiGet(action, params) {
   params = params || {};
-  const qs = new URLSearchParams({ action, ...params }).toString();
+  const qs = new URLSearchParams({ action, adminPassword, ...params }).toString();
   const res = await fetch(API_URL + '?' + qs);
   return res.json();
 }
 async function apiPost(action, payload) {
+  const payloadWithAuth = { ...payload, adminPassword };
   const res = await fetch(API_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ action, payload })
+    body: JSON.stringify({ action, payload: payloadWithAuth })
   });
   return res.json();
 }
 
-async function loadSchema() {
-  schema = await apiGet('getEvaluationSchema');
+// ---------- CONFIG ----------
+async function loadConfig() {
+  const cfg = await apiGet('getConfig');
+  document.getElementById('cfgDepartment').value = cfg.Department || '';
+  document.getElementById('cfgFaculty').value = cfg.Faculty || '';
+  document.getElementById('cfgCurrentTopic').value = cfg.CurrentTopic || '';
+  document.getElementById('cfgDriveFolderId').value = cfg.DriveFolderId || '';
+  document.getElementById('cfgLiffId').value = cfg.LiffId || '';
+  document.getElementById('cfgLineToken').value = cfg.LineChannelAccessToken || '';
+  document.getElementById('cfgStaffGroupId').value = cfg.LineStaffGroupId || '';
+}
+async function saveConfig() {
+  const statusEl = document.getElementById('configStatus');
+  statusEl.textContent = 'กำลังบันทึก...';
+  const payload = {
+    Department: document.getElementById('cfgDepartment').value,
+    Faculty: document.getElementById('cfgFaculty').value,
+    CurrentTopic: document.getElementById('cfgCurrentTopic').value,
+    DriveFolderId: document.getElementById('cfgDriveFolderId').value,
+    LiffId: document.getElementById('cfgLiffId').value,
+    LineChannelAccessToken: document.getElementById('cfgLineToken').value,
+    LineStaffGroupId: document.getElementById('cfgStaffGroupId').value
+  };
+  const newPwd = document.getElementById('cfgAdminPassword').value;
+  if (newPwd) {
+    payload.AdminPassword = newPwd;
+  }
+  const res = await apiPost('updateConfig', payload);
+  if (res.success && newPwd) {
+    adminPassword = newPwd; // อัปเดตรหัสผ่านที่ใช้ authenticate คำขอถัดไปในเซสชันนี้ทันที
+    document.getElementById('cfgAdminPassword').value = '';
+  }
+  statusEl.textContent = res.success ? '✅ บันทึกสำเร็จ' : '❌ ' + res.message;
 }
 
-async function loadStudents() {
-  students = await apiGet('getStudentList');
-}
-
-async function refreshEvaluationStatus() {
-  if (!teacherUid) return;
-  const status = await apiGet('getEvaluationStatus', { date: todayDate, teacherUid });
-  evaluatedStudentIds = status.evaluatedStudentIds || [];
-  pendingReevalStudentIds = status.pendingReevalStudentIds || [];
-  renderStudentCards();
-}
-
-function renderStudentCards() {
-  const container = document.getElementById('studentCards');
+// ---------- STUDENT GROUP ROW GENERATION ----------
+function generateRows() {
+  const year = document.getElementById('groupYear').value.trim();
+  const group = document.getElementById('groupName').value.trim();
+  const count = parseInt(document.getElementById('groupCount').value, 10);
+  if (!year || !group || !count || count < 1) {
+    alert('กรุณากรอก ปีที่ / กลุ่ม / จำนวน ให้ครบถ้วน');
+    return;
+  }
+  const container = document.getElementById('studentRowsContainer');
   container.innerHTML = '';
-  students.forEach(s => {
-    const isEvaluated = evaluatedStudentIds.includes(s.StudentID);
-    const isPending = pendingReevalStudentIds.includes(s.StudentID);
-    const card = document.createElement('div');
-    card.className = 'student-card bg-white rounded-xl card-shadow p-3 text-center cursor-pointer hover:shadow-md transition' + (isEvaluated ? ' evaluated' : '');
-
-    let buttonHtml;
-    if (isPending) {
-      buttonHtml = `<button class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-amber-100 text-amber-700">รออนุมัติ ⏳</button>`;
-    } else if (isEvaluated) {
-      buttonHtml = `<button class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-200 text-slate-500">ประเมินแล้ว - ขอแก้ไข</button>`;
-    } else {
-      buttonHtml = `<button class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-600 text-white">ประเมิน</button>`;
-    }
-
-    card.innerHTML = `
-      <img src="${s.ImageURL || FALLBACK_IMG}" onerror="this.onerror=null;this.src='${FALLBACK_IMG}'" class="w-20 h-20 rounded-full object-cover mx-auto mb-2 border-2 border-slate-200">
-      <p class="font-medium text-sm text-slate-800 truncate">${s.FullName}</p>
-      <p class="text-xs text-slate-400 mb-2">ปี ${s.Year} กลุ่ม ${s.Group}</p>
-      ${buttonHtml}
+  for (let i = 1; i <= count; i++) {
+    const row = document.createElement('div');
+    row.className = 'flex flex-wrap items-center gap-3 border border-slate-200 rounded-lg p-3';
+    row.innerHTML = `
+      <span class="text-sm font-semibold text-slate-500 w-8">#${i}</span>
+      <input type="text" class="student-name flex-1 min-w-[180px] border border-slate-300 rounded-lg px-3 py-2" placeholder="ชื่อ-นามสกุล นสพ. คนที่ ${i}">
+      <input type="file" accept="image/*" class="student-image text-sm" onchange="previewImage(this)">
+      <img class="preview-img w-10 h-10 rounded-full object-cover hidden border border-slate-300">
+      <input type="hidden" class="student-year" value="${year}">
+      <input type="hidden" class="student-group" value="${group}">
+      <input type="hidden" class="student-seq" value="${i}">
     `;
-    if (!isPending) {
-      card.addEventListener('click', () => isEvaluated ? openReEvalModal(s) : openModal(s));
+    container.appendChild(row);
+  }
+  document.getElementById('saveStudentsBtn').classList.remove('hidden');
+}
+
+function previewImage(input) {
+  const file = input.files[0];
+  const img = input.parentElement.querySelector('.preview-img');
+  if (!file) { img.classList.add('hidden'); return; }
+  const reader = new FileReader();
+  reader.onload = e => { img.src = e.target.result; img.classList.remove('hidden'); };
+  reader.readAsDataURL(file);
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function saveAllStudents() {
+  const statusEl = document.getElementById('studentSaveStatus');
+  const rows = document.querySelectorAll('#studentRowsContainer > div');
+  if (rows.length === 0) return;
+  statusEl.textContent = 'กำลังอัปโหลดรูปและบันทึกข้อมูล...';
+
+  const cfg = await apiGet('getConfig');
+  const students = [];
+
+  for (const row of rows) {
+    const fullName = row.querySelector('.student-name').value.trim();
+    const year = row.querySelector('.student-year').value;
+    const group = row.querySelector('.student-group').value;
+    const seqNo = row.querySelector('.student-seq').value;
+    const fileInput = row.querySelector('.student-image');
+    let imageUrl = '';
+
+    if (fileInput.files[0]) {
+      const base64 = await fileToBase64(fileInput.files[0]);
+      const uploadRes = await apiPost('uploadStudentImage', {
+        base64Data: base64,
+        fileName: fullName.replace(/\s+/g, '_') + '_' + Date.now() + '.jpg',
+        mimeType: fileInput.files[0].type
+      });
+      if (uploadRes.success) imageUrl = uploadRes.imageUrl;
     }
-    container.appendChild(card);
-  });
-}
 
-// ---------- MODAL / FORM ----------
-function openModal(student) {
-  currentStudent = student;
-  document.getElementById('modalStudentName').textContent = student.FullName;
-  document.getElementById('modalStudentMeta').textContent = 'ปี ' + student.Year + ' กลุ่ม ' + student.Group;
-  document.getElementById('modalStudentImage').src = student.ImageURL || FALLBACK_IMG;
-  document.getElementById('modalStudentImage').onerror = function() { this.onerror = null; this.src = FALLBACK_IMG; };
-  document.getElementById('submitError').classList.add('hidden');
-  renderForm();
-  document.getElementById('evalModal').classList.remove('hidden');
-  document.getElementById('evalModal').classList.add('flex');
-}
-function closeModal() {
-  document.getElementById('evalModal').classList.add('hidden');
-  document.getElementById('evalModal').classList.remove('flex');
-}
-
-function renderForm() {
-  const form = document.getElementById('evalForm');
-  let html = '';
-  schema.forEach(section => {
-    html += `<div><h3 class="font-semibold text-slate-700 mb-2">${section.section}</h3>`;
-    section.items.forEach(item => {
-      html += `<div class="mb-3 border border-slate-200 rounded-lg p-3">
-        <p class="text-sm text-slate-700 mb-2">${item.label} <span class="text-red-500">*</span></p>
-        <div class="flex flex-wrap gap-2">`;
-      item.options.forEach(opt => {
-        html += optionButton_(item.key, opt, opt);
-      });
-      html += optionButton_(item.key, 'NA', 'NA');
-      html += `</div></div>`;
+    students.push({
+      fullName, year, group, seqNo, imageUrl,
+      department: cfg.Department || '', faculty: cfg.Faculty || ''
     });
-    html += `</div>`;
-  });
-  form.innerHTML = html;
+  }
 
-  // ผูก event ให้ปุ่มตัวเลือกทำงานแบบ radio (เลือกได้ทีละ 1 ต่อข้อ)
-  form.querySelectorAll('button[data-key]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      form.querySelectorAll(`button[data-key="${btn.dataset.key}"]`).forEach(b => {
-        b.classList.remove('bg-blue-600', 'text-white');
-        b.classList.add('bg-slate-100', 'text-slate-600');
-      });
-      btn.classList.add('bg-blue-600', 'text-white');
-      btn.classList.remove('bg-slate-100', 'text-slate-600');
-      btn.dataset.selected = 'true';
-      form.querySelectorAll(`button[data-key="${btn.dataset.key}"]`).forEach(b => {
-        if (b !== btn) b.dataset.selected = 'false';
-      });
-    });
-  });
+  const res = await apiPost('addStudents', { students, adminUser: 'admin' });
+  statusEl.textContent = res.success ? `✅ บันทึก ${res.studentIds.length} รายชื่อสำเร็จ` : '❌ ' + res.message;
+  document.getElementById('studentRowsContainer').innerHTML = '';
+  document.getElementById('saveStudentsBtn').classList.add('hidden');
+  loadStudentList();
 }
 
-function optionButton_(key, value, label) {
-  return `<button type="button" data-key="${key}" data-value="${value}" data-selected="false"
-    class="px-3 py-1.5 rounded-lg text-sm font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 transition">${label}</button>`;
-}
-
-function collectAnswers_() {
-  const form = document.getElementById('evalForm');
-  const answers = {};
-  const keys = new Set();
-  form.querySelectorAll('button[data-key]').forEach(b => keys.add(b.dataset.key));
-  let allAnswered = true;
-  keys.forEach(key => {
-    const selected = form.querySelector(`button[data-key="${key}"][data-selected="true"]`);
-    if (!selected) { allAnswered = false; return; }
-    const v = selected.dataset.value;
-    answers[key] = v === 'NA' ? 'NA' : Number(v);
+// ---------- STUDENT LIST TABLE ----------
+async function loadStudentList() {
+  const list = await apiGet('getStudentList');
+  const container = document.getElementById('studentListTable');
+  if (!list.length) { container.innerHTML = '<p class="text-slate-400 text-sm">ยังไม่มีรายชื่อ</p>'; return; }
+  let html = `<table class="min-w-full text-sm">
+    <thead><tr class="text-left text-slate-500 border-b border-slate-200">
+      <th class="py-2 pr-3">รูป</th><th class="py-2 pr-3">ชื่อ-นามสกุล</th>
+      <th class="py-2 pr-3">ปีที่</th><th class="py-2 pr-3">กลุ่ม</th><th class="py-2 pr-3">ลำดับ</th>
+    </tr></thead><tbody>`;
+  list.forEach(s => {
+    html += `<tr class="border-b border-slate-100">
+      <td class="py-2 pr-3"><img src="${s.ImageURL || ''}" onerror="this.onerror=null;this.src='https://placehold.co/40x40?text=?';" class="w-9 h-9 rounded-full object-cover bg-slate-100"></td>
+      <td class="py-2 pr-3">${s.FullName}</td>
+      <td class="py-2 pr-3">${s.Year}</td>
+      <td class="py-2 pr-3">${s.Group}</td>
+      <td class="py-2 pr-3">${s.SeqNo}</td>
+    </tr>`;
   });
-  return { answers, allAnswered };
+  html += '</tbody></table>';
+  container.innerHTML = html;
 }
 
-async function submitEvaluationForm() {
-  const { answers, allAnswered } = collectAnswers_();
-  const errEl = document.getElementById('submitError');
-  if (!allAnswered) {
-    errEl.textContent = 'กรุณาตอบให้ครบทุกข้อ (หรือเลือก NA)';
-    errEl.classList.remove('hidden');
+// ---------- REEVAL REQUESTS ----------
+async function loadReevalRequests() {
+  const requests = await apiGet('getPendingReevalRequests');
+  const container = document.getElementById('reevalRequestsList');
+  const badge = document.getElementById('reevalBadge');
+
+  if (requests.length > 0) {
+    badge.textContent = requests.length;
+    badge.classList.remove('hidden');
+  } else {
+    badge.classList.add('hidden');
+  }
+
+  if (!requests.length) {
+    container.innerHTML = '<p class="text-slate-400 text-sm">ไม่มีคำขอที่รออนุมัติ</p>';
     return;
   }
 
-  const submitBtn = document.getElementById('submitBtn');
-  submitBtn.disabled = true;
-  submitBtn.textContent = 'กำลังบันทึก...';
-
-  const payload = {
-    studentId: currentStudent.StudentID,
-    studentName: currentStudent.FullName,
-    studentImageUrl: currentStudent.ImageURL,
-    teacherUid: teacherUid,
-    teacherName: teacherName,
-    evalDate: todayDate,
-    answers: answers
-  };
-
-  const res = await apiPost('submitEvaluation', payload);
-  submitBtn.disabled = false;
-  submitBtn.textContent = 'บันทึกผลการประเมิน';
-
-  if (res.success) {
-    evaluatedStudentIds.push(currentStudent.StudentID);
-    renderStudentCards();
-    showSuccessModal_(currentStudent, res);
-    closeModal();
-  } else {
-    errEl.textContent = res.message || 'เกิดข้อผิดพลาด กรุณาลองใหม่';
-    errEl.classList.remove('hidden');
-  }
+  container.innerHTML = requests.map(r => `
+    <div class="border border-amber-200 bg-amber-50 rounded-lg p-4">
+      <div class="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p class="font-semibold text-slate-800">${r.StudentName}</p>
+          <p class="text-sm text-slate-500">อาจารย์: ${r.TeacherName} · วันที่: ${r.EvalDate}</p>
+          ${r.Reason ? `<p class="text-sm text-slate-600 mt-1">เหตุผล: ${r.Reason}</p>` : ''}
+        </div>
+        <div class="flex gap-2 shrink-0">
+          <button onclick="respondReeval('${r.RequestID}', true)" class="bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-3 py-1.5 rounded-lg transition">อนุมัติ</button>
+          <button onclick="respondReeval('${r.RequestID}', false)" class="bg-slate-200 hover:bg-slate-300 text-slate-700 text-sm font-medium px-3 py-1.5 rounded-lg transition">ปฏิเสธ</button>
+        </div>
+      </div>
+    </div>
+  `).join('');
 }
 
-// ---------- แสดงผลยืนยันหลังบันทึกสำเร็จ (รูป + คะแนน) ให้อาจารย์เห็นทันทีในหน้าเว็บ ----------
-function showSuccessModal_(student, evalResult) {
-  document.getElementById('successImage').src = student.ImageURL || FALLBACK_IMG;
-  document.getElementById('successImage').onerror = function() { this.onerror = null; this.src = FALLBACK_IMG; };
-  document.getElementById('successName').textContent = student.FullName;
-  document.getElementById('successScore').textContent = evalResult.totalScore + ' / ' + evalResult.maxScore + ' (' + evalResult.percentage + '%)';
-  document.getElementById('successModal').classList.remove('hidden');
-  document.getElementById('successModal').classList.add('flex');
+async function respondReeval(requestId, approve) {
+  const action = approve ? 'approveReevalRequest' : 'rejectReevalRequest';
+  const res = await apiPost(action, { requestId, adminUser: 'admin' });
+  if (!res.success) alert(res.message || 'ทำรายการไม่สำเร็จ');
+  loadReevalRequests();
+  if (approve) loadDashboard();
 }
 
-function closeSuccessModal() {
-  document.getElementById('successModal').classList.add('hidden');
-  document.getElementById('successModal').classList.remove('flex');
-  // ปิดหน้าต่างอัตโนมัติถ้าเปิดผ่าน LINE LIFF ในแอป (การส่ง Flex Message ไปให้อาจารย์ทำหน้าที่ยืนยันซ้ำอีกทางอยู่แล้ว)
-  if (window.liff && liff.isInClient && liff.isInClient()) {
-    // ปล่อยให้อาจารย์เลือกประเมินคนถัดไปในหน้าเดิมแทนการปิดหน้าต่างทันที
-  }
-}
+// ---------- DASHBOARD ----------
+async function loadDashboard() {
+  const data = await apiGet('getDashboard');
+  document.getElementById('dashboardSummaryCards').innerHTML = `
+    <div class="bg-blue-50 rounded-lg p-4">
+      <p class="text-xs text-blue-500 font-medium">จำนวนการประเมินทั้งหมด</p>
+      <p class="text-2xl font-bold text-blue-700">${data.totalEvaluations}</p>
+    </div>
+    <div class="bg-green-50 rounded-lg p-4">
+      <p class="text-xs text-green-500 font-medium">จำนวน นสพ. ที่ถูกประเมิน</p>
+      <p class="text-2xl font-bold text-green-700">${data.students.length}</p>
+    </div>`;
 
-// ---------- ขอแก้ไขคะแนน (นสพ. ที่ประเมินไปแล้ว) ----------
-function openReEvalModal(student) {
-  currentStudent = student;
-  document.getElementById('reEvalImage').src = student.ImageURL || FALLBACK_IMG;
-  document.getElementById('reEvalImage').onerror = function() { this.onerror = null; this.src = FALLBACK_IMG; };
-  document.getElementById('reEvalStudentName').textContent = student.FullName + ' (ปี ' + student.Year + ' กลุ่ม ' + student.Group + ')';
-  document.getElementById('reEvalReason').value = '';
-  document.getElementById('reEvalError').classList.add('hidden');
-  document.getElementById('reEvalSuccess').classList.add('hidden');
-  document.getElementById('reEvalSubmitBtn').classList.remove('hidden');
-  document.getElementById('reEvalModal').classList.remove('hidden');
-  document.getElementById('reEvalModal').classList.add('flex');
-}
-function closeReEvalModal() {
-  document.getElementById('reEvalModal').classList.add('hidden');
-  document.getElementById('reEvalModal').classList.remove('flex');
-}
-
-async function submitReEvalRequest() {
-  const reason = document.getElementById('reEvalReason').value.trim();
-  const errEl = document.getElementById('reEvalError');
-  const successEl = document.getElementById('reEvalSuccess');
-  errEl.classList.add('hidden');
-
-  const btn = document.getElementById('reEvalSubmitBtn');
-  btn.disabled = true;
-  btn.textContent = 'กำลังส่งคำขอ...';
-
-  const res = await apiPost('requestReEvaluation', {
-    studentId: currentStudent.StudentID,
-    studentName: currentStudent.FullName,
-    teacherUid: teacherUid,
-    teacherName: teacherName,
-    evalDate: todayDate,
-    reason: reason
+  let html = `<table class="min-w-full text-sm">
+    <thead><tr class="text-left text-slate-500 border-b border-slate-200">
+      <th class="py-2 pr-3">ชื่อ-นามสกุล</th><th class="py-2 pr-3">จำนวนครั้งที่ถูกประเมิน</th><th class="py-2 pr-3">คะแนนเฉลี่ย (%)</th>
+    </tr></thead><tbody>`;
+  data.students.forEach(s => {
+    html += `<tr class="border-b border-slate-100">
+      <td class="py-2 pr-3">${s.studentName}</td>
+      <td class="py-2 pr-3">${s.totalEvaluations}</td>
+      <td class="py-2 pr-3">${s.avgPercentage}%</td>
+    </tr>`;
   });
-
-  btn.disabled = false;
-  btn.textContent = 'ส่งคำขอ';
-
-  if (res.success) {
-    successEl.classList.remove('hidden');
-    btn.classList.add('hidden');
-    pendingReevalStudentIds.push(currentStudent.StudentID);
-    renderStudentCards();
-    setTimeout(closeReEvalModal, 1500);
-  } else {
-    errEl.textContent = res.message || 'ส่งคำขอไม่สำเร็จ กรุณาลองใหม่';
-    errEl.classList.remove('hidden');
-  }
+  html += '</tbody></table>';
+  document.getElementById('dashboardTable').innerHTML = html;
 }
 
-initLiff();
+// ---------- init ----------
+function initApp() {
+  loadConfig();
+  loadStudentList();
+  loadReevalRequests();
+  loadDashboard();
+}
+checkNeedsLogin();
 </script>
 </body>
 </html>
