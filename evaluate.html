@@ -17,7 +17,7 @@
 
 <script>
   const API_URL = 'https://script.google.com/macros/s/AKfycbygq1yetLuXfDUqQXyanf6yNBVLimnToz6vQDbR5tMZ7kXBl02af72wbDIhvHbJ6mRT/exec';
-  const LIFF_ID = '2010610623-0RDPcqtw'; // แทนที่ด้วย LIFF ID จริง
+  const LIFF_ID = 'https://liff.line.me/2010610623-0RDPcqtw'; // แทนที่ด้วย LIFF ID จริง
   // รูป fallback แบบ inline SVG (ไม่พึ่งพา service ภายนอก) ใช้เมื่อ นสพ. ยังไม่มีรูป หรือรูปโหลดไม่ขึ้น
   const FALLBACK_IMG = 'data:image/svg+xml;utf8,' + encodeURIComponent(
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">' +
@@ -53,7 +53,7 @@
 <div id="evalModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center p-4 z-50">
   <div class="bg-white rounded-xl max-w-xl w-full max-h-[90vh] overflow-y-auto">
     <div class="sticky top-0 bg-white border-b border-slate-200 p-4 flex items-center gap-3">
-      <img id="modalStudentImage" src="" class="w-12 h-12 rounded-full object-cover border border-slate-200">
+      <img id="modalStudentImage" src="" class="w-12 h-12 rounded-full object-cover border border-slate-200 shrink-0 bg-slate-100">
       <div class="flex-1">
         <h2 id="modalStudentName" class="font-bold text-lg text-slate-800"></h2>
         <p id="modalStudentMeta" class="text-xs text-slate-400"></p>
@@ -85,6 +85,7 @@
     <p class="text-green-600 font-semibold text-sm mb-1">บันทึกผลการประเมินสำเร็จ ✅</p>
     <h3 id="successName" class="font-bold text-lg text-slate-800"></h3>
     <p id="successScore" class="text-2xl font-bold text-blue-600 my-2"></p>
+    <div id="successBreakdown" class="text-left bg-slate-50 rounded-lg p-3 mb-3 space-y-1 max-h-52 overflow-y-auto"></div>
     <button onclick="closeSuccessModal()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg transition mt-2">
       ประเมินคนถัดไป
     </button>
@@ -95,7 +96,7 @@
 <div id="reEvalModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center p-4 z-50">
   <div class="bg-white rounded-xl max-w-sm w-full p-6">
     <div class="flex items-center gap-3 mb-3">
-      <img id="reEvalImage" src="" class="w-12 h-12 rounded-full object-cover border border-slate-200">
+      <img id="reEvalImage" src="" class="w-12 h-12 rounded-full object-cover border border-slate-200 shrink-0 bg-slate-100">
       <div>
         <h3 class="font-bold text-slate-800">ขอแก้ไขคะแนน</h3>
         <p id="reEvalStudentName" class="text-sm text-slate-500"></p>
@@ -351,7 +352,7 @@ async function submitEvaluationForm() {
   if (res.success) {
     evaluatedStudentIds.push(currentStudent.StudentID);
     renderStudentCards();
-    showSuccessModal_(currentStudent, res);
+    showSuccessModal_(currentStudent, res, answers);
     closeModal();
   } else {
     errEl.textContent = res.message || 'เกิดข้อผิดพลาด กรุณาลองใหม่';
@@ -359,12 +360,36 @@ async function submitEvaluationForm() {
   }
 }
 
-// ---------- แสดงผลยืนยันหลังบันทึกสำเร็จ (รูป + คะแนน) ให้อาจารย์เห็นทันทีในหน้าเว็บ ----------
-function showSuccessModal_(student, evalResult) {
+/** คำนวณคะแนนแยกตามหัวข้อ (1-7) จากคำตอบ เพื่อแสดงรายละเอียดให้อาจารย์เห็นหลังบันทึก */
+function computeSectionBreakdown_(answers) {
+  return schema.map(section => {
+    let score = 0;
+    let max = 0;
+    section.items.forEach(item => {
+      const val = answers[item.key];
+      if (val === 'NA' || val === undefined) return;
+      score += Number(val);
+      max += item.max;
+    });
+    return { section: section.section, score, max };
+  }).filter(s => s.max > 0);
+}
+
+// ---------- แสดงผลยืนยันหลังบันทึกสำเร็จ (รูป + คะแนน + รายละเอียดตามหัวข้อ) ให้อาจารย์เห็นทันทีในหน้าเว็บ ----------
+function showSuccessModal_(student, evalResult, answers) {
   document.getElementById('successImage').src = student.ImageURL || FALLBACK_IMG;
   document.getElementById('successImage').onerror = function() { this.onerror = null; this.src = FALLBACK_IMG; };
   document.getElementById('successName').textContent = student.FullName;
   document.getElementById('successScore').textContent = evalResult.totalScore + ' / ' + evalResult.maxScore + ' (' + evalResult.percentage + '%)';
+
+  const breakdown = computeSectionBreakdown_(answers);
+  document.getElementById('successBreakdown').innerHTML = breakdown.map(b => `
+    <div class="flex items-center justify-between text-sm">
+      <span class="text-slate-600">${b.section}</span>
+      <span class="font-medium text-slate-800 shrink-0 ml-2">${b.score} / ${b.max}</span>
+    </div>
+  `).join('');
+
   document.getElementById('successModal').classList.remove('hidden');
   document.getElementById('successModal').classList.add('flex');
 }
