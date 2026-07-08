@@ -8,16 +8,20 @@
 <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  body { font-family: 'Sarabun', 'Noto Sans Thai', sans-serif; }
-  .student-card.evaluated { filter: grayscale(100%); opacity: 0.4; }
-  .card-shadow { box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06); }
+  body { font-family: 'Sarabun', 'Noto Sans Thai', sans-serif; font-size: 16px; }
+  .student-card.evaluated { filter: grayscale(100%); opacity: 0.55; }
+  .card-shadow { box-shadow: 0 2px 8px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08); }
+  .option-card { transition: all .15s ease; }
+  .option-card.selected { background: #2563EB; border-color: #2563EB; }
+  .option-card.selected .option-title, .option-card.selected .option-desc { color: #ffffff; }
 </style>
 </head>
 <body class="bg-slate-50 min-h-screen pb-10">
 
 <script>
-  const API_URL = 'https://script.google.com/macros/s/AKfycbygq1yetLuXfDUqQXyanf6yNBVLimnToz6vQDbR5tMZ7kXBl02af72wbDIhvHbJ6mRT/exec';
+  const API_URL = 'https://script.google.com/macros/s/XXXXXXXXXXXXXXXXXXXXXX/exec';
   const LIFF_ID = 'https://liff.line.me/2010610623-0RDPcqtw'; // แทนที่ด้วย LIFF ID จริง
+  const REGISTER_URL = 'https://YOUR_GITHUB_PAGES_URL/register.html'; // แทนที่ด้วย URL หน้าลงทะเบียนจริง
   // รูป fallback แบบ inline SVG (ไม่พึ่งพา service ภายนอก) ใช้เมื่อ นสพ. ยังไม่มีรูป หรือรูปโหลดไม่ขึ้น
   const FALLBACK_IMG = 'data:image/svg+xml;utf8,' + encodeURIComponent(
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">' +
@@ -28,23 +32,27 @@
   );
 </script>
 
-<div class="max-w-3xl mx-auto p-4 md:p-6">
-  <header class="mb-5">
-    <h1 class="text-xl md:text-2xl font-bold text-slate-800">แบบประเมินนักศึกษาแพทย์ (OPD Teaching)</h1>
-    <p id="teacherNameLabel" class="text-slate-500 text-sm mt-1"></p>
-  </header>
+<div class="bg-blue-700 pb-6 pt-2 px-4 md:px-6 rounded-b-3xl mb-5 shadow-lg">
+  <div class="max-w-3xl mx-auto">
+    <header class="mb-4 pt-2">
+      <h1 class="text-xl md:text-2xl font-bold text-white">แบบประเมินนักศึกษาแพทย์ (OPD Teaching)</h1>
+      <div id="teacherCard" class="flex items-center gap-2 mt-2"></div>
+    </header>
 
-  <!-- รายละเอียดหัวข้อ/ภาควิชา/คณะ ของกิจกรรมที่กำลังประเมิน -->
-  <div id="topicBanner" class="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-5 hidden">
-    <p id="topicBannerDeptFaculty" class="text-sm font-medium text-blue-800"></p>
-    <p id="topicBannerTopic" class="text-sm text-blue-700 mt-1"></p>
+    <!-- รายละเอียดหัวข้อ/ภาควิชา/คณะ ของกิจกรรมที่กำลังประเมิน -->
+    <div id="topicBanner" class="bg-white/10 border border-white/20 rounded-xl p-4 mb-4 hidden">
+      <p id="topicBannerDeptFaculty" class="text-sm font-medium text-white"></p>
+      <p id="topicBannerTopic" class="text-sm text-blue-100 mt-1"></p>
+    </div>
+
+    <div class="flex items-center justify-between">
+      <p id="todayLabel" class="text-sm text-blue-100"></p>
+      <button onclick="refreshEvaluationStatus()" class="text-sm text-white/90 hover:underline">🔄 รีเฟรชสถานะ</button>
+    </div>
   </div>
+</div>
 
-  <div class="flex items-center justify-between mb-3">
-    <p id="todayLabel" class="text-sm text-slate-500"></p>
-    <button onclick="refreshEvaluationStatus()" class="text-sm text-blue-600 hover:underline">🔄 รีเฟรชสถานะ</button>
-  </div>
-
+<div class="max-w-3xl mx-auto p-4 md:p-6 pt-0">
   <!-- รายชื่อ นสพ. -->
   <div id="studentCards" class="grid grid-cols-2 md:grid-cols-3 gap-4"></div>
 </div>
@@ -52,13 +60,13 @@
 <!-- ================= MODAL: แบบฟอร์มประเมิน ================= -->
 <div id="evalModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center p-4 z-50">
   <div class="bg-white rounded-xl max-w-xl w-full max-h-[90vh] overflow-y-auto">
-    <div class="sticky top-0 bg-white border-b border-slate-200 p-4 flex items-center gap-3">
-      <img id="modalStudentImage" src="" class="w-12 h-12 rounded-full object-cover border border-slate-200 shrink-0 bg-slate-100">
+    <div class="sticky top-0 bg-blue-600 rounded-t-xl p-4 flex items-center gap-3">
+      <img id="modalStudentImage" src="" class="w-12 h-12 rounded-full object-cover border-2 border-white/60 shrink-0 bg-slate-100">
       <div class="flex-1">
-        <h2 id="modalStudentName" class="font-bold text-lg text-slate-800"></h2>
-        <p id="modalStudentMeta" class="text-xs text-slate-400"></p>
+        <h2 id="modalStudentName" class="font-bold text-lg text-white"></h2>
+        <p id="modalStudentMeta" class="text-xs text-blue-100"></p>
       </div>
-      <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>
+      <button onclick="closeModal()" class="text-white/80 hover:text-white text-2xl leading-none">&times;</button>
     </div>
 
     <div class="p-4 bg-amber-50 text-amber-800 text-sm m-4 rounded-lg border border-amber-200">
@@ -119,6 +127,7 @@
 <script>
 let teacherUid = '';
 let teacherName = '';
+let teacherProfileImage = '';
 let students = [];
 let evaluatedStudentIds = [];
 let pendingReevalStudentIds = [];
@@ -138,27 +147,35 @@ function getLocalDateStr_() {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-// ---------- LIFF INIT: ดึง LINE UID ของอาจารย์ผู้ประเมิน ----------
+// ---------- LIFF INIT: ดึง LINE UID แล้วนำไปค้นหาข้อมูลอาจารย์ที่ลงทะเบียนไว้ ----------
 async function initLiff() {
+  let profile = null;
   try {
     await liff.init({ liffId: LIFF_ID });
     if (!liff.isLoggedIn()) { liff.login(); return; }
-    const profile = await liff.getProfile();
+    profile = await liff.getProfile();
     teacherUid = profile.userId;
-    teacherName = profile.displayName;
-    document.getElementById('teacherNameLabel').textContent = 'ผู้ประเมิน: ' + teacherName;
-    // ลงทะเบียนผู้ใช้ (ถ้ายังไม่เคยลงทะเบียน)
-    await apiPost('registerUser', { uid: teacherUid, name: teacherName, role: 'teacher' });
   } catch (err) {
     console.error('LIFF init error', err);
     // fallback สำหรับทดสอบนอก LINE
     teacherUid = 'TEST_UID_' + Math.floor(Math.random() * 1000);
-    teacherName = 'อาจารย์ทดสอบ';
-    document.getElementById('teacherNameLabel').textContent = 'ผู้ประเมิน: ' + teacherName + ' (โหมดทดสอบ)';
+  }
+
+  // ดึงชื่อ-นามสกุล และรูปโปรไฟล์จากหน้าลงทะเบียนอาจารย์ (User_Registration) ตาม UID
+  // ไม่ใช้ LINE displayName ตรงๆ เพราะอาจารย์อาจตั้งชื่อ LINE ไม่เป็นทางการ
+  const lookup = await apiGet('getUserByUid', { uid: teacherUid });
+  if (lookup.success && lookup.user) {
+    teacherName = lookup.user.Name;
+    teacherProfileImage = lookup.user.ProfileImageUrl || (profile ? profile.pictureUrl : '');
+    renderTeacherCard_();
+  } else {
+    // ยังไม่เคยลงทะเบียน -> พาไปหน้าลงทะเบียนก่อนใช้งาน
+    renderNeedsRegistration_();
+    return;
   }
 
   todayDate = getLocalDateStr_();
-  document.getElementById('todayLabel').textContent = 'วันนี้: ' + formatThaiDate_(todayDate);
+  document.getElementById('todayLabel').textContent = 'วันที่ประเมิน: ' + formatThaiDate_(todayDate);
   await loadConfig();
   await loadSchema();
   await loadStudents();
@@ -166,6 +183,25 @@ async function initLiff() {
 
   // รีเฟรชสถานะอัตโนมัติทุก 30 วินาที (เผื่อเจ้าหน้าที่เพิ่งอนุมัติคำขอประเมินใหม่)
   setInterval(refreshEvaluationStatus, 30000);
+}
+
+function renderTeacherCard_() {
+  document.getElementById('teacherCard').innerHTML = `
+    <img src="${teacherProfileImage || FALLBACK_IMG}" onerror="this.onerror=null;this.src='${FALLBACK_IMG}'"
+      class="w-8 h-8 rounded-full object-cover border-2 border-white/60 bg-slate-100 shrink-0">
+    <span class="text-blue-50 text-sm">ผู้ประเมิน: <span class="font-medium text-white">${teacherName}</span></span>
+  `;
+}
+
+function renderNeedsRegistration_() {
+  document.getElementById('teacherCard').innerHTML = `<span class="text-blue-50 text-sm">กรุณาลงทะเบียนก่อนใช้งาน</span>`;
+  document.getElementById('studentCards').innerHTML = `
+    <div class="col-span-2 md:col-span-3 bg-white rounded-xl card-shadow p-6 text-center">
+      <p class="text-slate-700 font-medium mb-3">คุณยังไม่เคยลงทะเบียนเป็นผู้ประเมิน</p>
+      <p class="text-slate-500 text-sm mb-4">กรุณาลงทะเบียนชื่อ-นามสกุลก่อนเริ่มใช้งานแบบประเมิน (ทำครั้งเดียว)</p>
+      <a href="${REGISTER_URL}" class="inline-block bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2.5 rounded-lg transition">ไปหน้าลงทะเบียน</a>
+    </div>
+  `;
 }
 
 function formatThaiDate_(dateStr) {
@@ -270,51 +306,50 @@ function renderForm() {
   const form = document.getElementById('evalForm');
   let html = '';
   schema.forEach(section => {
-    html += `<div><h3 class="font-semibold text-slate-700 mb-2">${section.section}</h3>`;
+    html += `<div><h3 class="font-semibold text-blue-700 text-[15px] mb-2">${section.section}</h3>`;
     section.items.forEach(item => {
-      html += `<div class="mb-3 border border-slate-200 rounded-lg p-3">
-        <p class="text-sm text-slate-700 mb-2">${item.label} <span class="text-red-500">*</span></p>
-        <div class="flex flex-wrap gap-2">`;
+      html += `<div class="mb-4 border border-slate-200 rounded-xl p-3 bg-white">
+        <p class="text-[15px] font-medium text-slate-800 mb-2">${item.label} <span class="text-red-500">*</span></p>
+        <div class="space-y-2">`;
       item.options.forEach(opt => {
-        html += optionButton_(item.key, opt, opt);
+        html += optionCard_(item.key, opt.value, opt.title, opt.desc);
       });
-      html += optionButton_(item.key, 'NA', 'NA');
+      html += optionCard_(item.key, 'NA', 'NA', 'ไม่มีส่วนเกี่ยวข้องกับการประเมิน นสพ. คนนี้ในหัวข้อนี้');
       html += `</div></div>`;
     });
     html += `</div>`;
   });
   form.innerHTML = html;
 
-  // ผูก event ให้ปุ่มตัวเลือกทำงานแบบ radio (เลือกได้ทีละ 1 ต่อข้อ)
-  form.querySelectorAll('button[data-key]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      form.querySelectorAll(`button[data-key="${btn.dataset.key}"]`).forEach(b => {
-        b.classList.remove('bg-blue-600', 'text-white');
-        b.classList.add('bg-slate-100', 'text-slate-600');
+  // ผูก event ให้การ์ดตัวเลือกทำงานแบบ radio (เลือกได้ทีละ 1 ต่อข้อ)
+  form.querySelectorAll('[data-key]').forEach(card => {
+    card.addEventListener('click', () => {
+      form.querySelectorAll(`[data-key="${card.dataset.key}"]`).forEach(c => {
+        c.classList.remove('selected');
+        c.dataset.selected = 'false';
       });
-      btn.classList.add('bg-blue-600', 'text-white');
-      btn.classList.remove('bg-slate-100', 'text-slate-600');
-      btn.dataset.selected = 'true';
-      form.querySelectorAll(`button[data-key="${btn.dataset.key}"]`).forEach(b => {
-        if (b !== btn) b.dataset.selected = 'false';
-      });
+      card.classList.add('selected');
+      card.dataset.selected = 'true';
     });
   });
 }
 
-function optionButton_(key, value, label) {
-  return `<button type="button" data-key="${key}" data-value="${value}" data-selected="false"
-    class="px-3 py-1.5 rounded-lg text-sm font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 transition">${label}</button>`;
+function optionCard_(key, value, title, desc) {
+  return `<div data-key="${key}" data-value="${value}" data-selected="false"
+    class="option-card cursor-pointer rounded-lg border border-slate-200 px-3 py-2.5 hover:bg-slate-50">
+    <p class="option-title font-semibold text-slate-800 text-[15px] leading-snug">${title}</p>
+    <p class="option-desc text-slate-500 text-sm leading-snug mt-0.5">${desc}</p>
+  </div>`;
 }
 
 function collectAnswers_() {
   const form = document.getElementById('evalForm');
   const answers = {};
   const keys = new Set();
-  form.querySelectorAll('button[data-key]').forEach(b => keys.add(b.dataset.key));
+  form.querySelectorAll('[data-key]').forEach(b => keys.add(b.dataset.key));
   let allAnswered = true;
   keys.forEach(key => {
-    const selected = form.querySelector(`button[data-key="${key}"][data-selected="true"]`);
+    const selected = form.querySelector(`[data-key="${key}"][data-selected="true"]`);
     if (!selected) { allAnswered = false; return; }
     const v = selected.dataset.value;
     answers[key] = v === 'NA' ? 'NA' : Number(v);
